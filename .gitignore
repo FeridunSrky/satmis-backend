@@ -31,3 +31,13 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment ###
+.env
+.env.*
+!.env.example
+
+### Misc ###
+node_modules/
+*.log
+.DS_Store

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: satmis-postgres
+    environment:
+      POSTGRES_DB: satmis
+      POSTGRES_USER: satmis
+      POSTGRES_PASSWORD: satmis
+    # Host port defaults to 5433 because a local PostgreSQL already listens on 5432
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - satmis-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U satmis -d satmis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  satmis-pgdata:
