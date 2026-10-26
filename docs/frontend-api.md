@@ -16,7 +16,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
 | Enum'lar | Büyük harf İngilizce değerler. Türkçe etiketler frontend'in işi (öneri tablosu aşağıda). |
 | Id'ler | Sayı (`number`). Path'te sayı olmayan id → 400. |
-| Kimlik | Korumalı uçlarda `Authorization: Bearer <accessToken>`. Token yoksa/geçersizse 401, yetki yoksa 403. |
+| Kimlik | Korumalı uçlarda `Authorization: Bearer <accessToken>`. Token yoksa/geçersizse 401, yetki yoksa 403. Açık uçlarda (`GET /api/listings/**`, `/api/catalog/**`) token göndermek isteğe bağlıdır: token **hiç yoksa** misafir olarak 200; token **gönderilmiş ama süresi dolmuş/geçersizse 401** döner (mevcut refresh interceptor'ı yenileyip isteği tekrarlar). `/api/auth/**` uçları gönderilen token'a hiç bakmaz. |
 | Oluşturma | `201 Created` + `Location` header'ı + oluşan kaydın gövdesi. |
 
 ## Telefon numarası ve satıcı iletişimi

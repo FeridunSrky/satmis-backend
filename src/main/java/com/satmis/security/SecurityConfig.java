@@ -53,7 +53,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
-                .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
+                .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService, restSecurityHandler),
                         UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

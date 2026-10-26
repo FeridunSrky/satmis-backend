@@ -2,6 +2,11 @@ package com.satmis.auth;
 
 import com.jayway.jsonpath.JsonPath;
 import com.satmis.TestJwtSecret;
+import com.satmis.enums.Role;
+import com.satmis.security.CustomUserDetails;
+import com.satmis.security.JwtProperties;
+import com.satmis.security.JwtService;
+import com.satmis.user.User;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +45,7 @@ class AuthFlowIT {
     private static final String PASSWORD = "Sifre1234";
     private static final String NEW_PASSWORD = "YeniSifre5678";
     private static final String PHONE = "+905321234567";
+    private static final long ALREADY_EXPIRED_MS = -60_000;
 
     @Container
     @ServiceConnection
@@ -58,6 +64,9 @@ class AuthFlowIT {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private JwtProperties jwtProperties;
 
     @Test
     void register_validRequest_returnsTokens() throws Exception {
@@ -122,6 +131,35 @@ class AuthFlowIT {
                 .andExpect(jsonPath("$.errors.phone").isNotEmpty());
         mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
                 .andExpect(jsonPath("$.phone").value(PHONE));
+    }
+
+    @Test
+    void publicEndpoint_expiredOrInvalidToken_returns401SoClientRefreshes() throws Exception {
+        String email = uniqueEmail();
+        register(email).andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/listings").header(HttpHeaders.AUTHORIZATION, bearer(expiredAccessToken(email))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+        mockMvc.perform(get("/api/catalog/brands").header(HttpHeaders.AUTHORIZATION, bearer("not-a-jwt")))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/listings")).andExpect(status().isOk());
+    }
+
+    @Test
+    void authEndpoints_staleTokenHeader_stillWork() throws Exception {
+        String email = uniqueEmail();
+        String refreshToken = field(register(email), "$.refreshToken");
+        String staleHeader = bearer(expiredAccessToken(email));
+
+        mockMvc.perform(post("/api/auth/login").header(HttpHeaders.AUTHORIZATION, staleHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("email", email, "password", PASSWORD))))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/auth/refresh").header(HttpHeaders.AUTHORIZATION, staleHeader)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("refreshToken", refreshToken))))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -214,6 +252,15 @@ class AuthFlowIT {
                 .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json(body)));
+    }
+
+    private String expiredAccessToken(String email) {
+        JwtService expiringJwtService = new JwtService(new JwtProperties(
+                jwtProperties.secret(), ALREADY_EXPIRED_MS, jwtProperties.refreshExpirationMs()));
+        User user = new User();
+        user.setEmail(email);
+        user.setRole(Role.USER);
+        return expiringJwtService.generateAccessToken(new CustomUserDetails(user));
     }
 
     private ResultActions login(String email, String password) throws Exception {

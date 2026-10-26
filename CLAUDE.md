@@ -48,6 +48,7 @@ Boot 4 notları:
 - Lokalde bu değerler proje kökündeki git-ignored `.env` dosyasından okunur (`spring.config.import=optional:file:.env[.properties]`); STS/terminal/Maven aynı dosyayı görür. Sunucuda `.env` yoktur, gerçek ortam değişkeni/secret manager kullanılır ve ortam değişkeni `.env`'i ezer. Her ortamın kendi JWT secret'ı olur.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var.
 - Rol hiçbir zaman istemciden alınmaz.
+- Gönderilmiş ama geçersiz/süresi dolmuş Bearer token açık uçlarda da 401 döner (sessizce anonim sayılmaz, yoksa istemci token yenilemez). Token hiç yoksa istek anonimdir. `/api/auth/**` token'a bakmaz.
 - Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
 - Kullanıcı yalnızca kendi kaydını değiştirebilir (sahiplik kontrolü Service'te yapılır; kullanıcı id'si URL'den değil token'dan alınır).
 - Yetki kuralları `SecurityConfig`'te: `/api/auth/**`, `GET /api/listings/**`, `GET /api/catalog/**` ve Swagger yolları açık; `/api/admin/**` sadece ADMIN; geri kalanı kimlik ister.
