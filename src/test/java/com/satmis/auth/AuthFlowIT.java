@@ -1,0 +1,203 @@
+package com.satmis.auth;
+
+import com.jayway.jsonpath.JsonPath;
+import com.satmis.TestJwtSecret;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@Testcontainers
+class AuthFlowIT {
+
+    private static final String PASSWORD = "Sifre1234";
+    private static final String NEW_PASSWORD = "YeniSifre5678";
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse("postgres:16"));
+
+    @DynamicPropertySource
+    static void jwtProperties(DynamicPropertyRegistry registry) {
+        registry.add("app.jwt.secret", TestJwtSecret::random);
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private JsonMapper jsonMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Test
+    void register_validRequest_returnsTokens() throws Exception {
+        String email = uniqueEmail();
+
+        register(email)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.user.email").value(email))
+                .andExpect(jsonPath("$.user.role").value("USER"));
+    }
+
+    @Test
+    void register_duplicateEmail_returnsConflict() throws Exception {
+        String email = uniqueEmail();
+        register(email).andExpect(status().isCreated());
+
+        register(email.toUpperCase(Locale.ROOT)).andExpect(status().isConflict());
+    }
+
+    @Test
+    void register_invalidBody_returnsFieldErrors() throws Exception {
+        postJson("/api/auth/register", Map.of(
+                "email", "gecersiz-eposta", "password", "kisa", "firstName", "Ali", "lastName", "Veli"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.email").isNotEmpty())
+                .andExpect(jsonPath("$.errors.password").isNotEmpty());
+    }
+
+    @Test
+    void login_wrongPasswordThenCorrect_returns401Then200() throws Exception {
+        String email = uniqueEmail();
+        register(email);
+
+        login(email, "YanlisSifre99").andExpect(status().isUnauthorized());
+        login(email, PASSWORD).andExpect(status().isOk());
+    }
+
+    @Test
+    void me_withAndWithoutToken_requiresAuthentication() throws Exception {
+        String email = uniqueEmail();
+        String accessToken = field(register(email), "$.accessToken");
+
+        mockMvc.perform(get("/api/users/me")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(email));
+    }
+
+    @Test
+    void refresh_reusedRotatedToken_revokesWholeSession() throws Exception {
+        String firstRefresh = field(register(uniqueEmail()), "$.refreshToken");
+
+        ResultActions rotated = refresh(firstRefresh).andExpect(status().isOk());
+        String secondRefresh = field(rotated, "$.refreshToken");
+        assertThat(secondRefresh).isNotEqualTo(firstRefresh);
+
+        refresh(firstRefresh).andExpect(status().isUnauthorized());
+        refresh(secondRefresh).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_thenRefresh_returns401() throws Exception {
+        String refreshToken = field(register(uniqueEmail()), "$.refreshToken");
+
+        postJson("/api/auth/logout", Map.of("refreshToken", refreshToken)).andExpect(status().isNoContent());
+
+        refresh(refreshToken).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void changePassword_valid_revokesTokensAndSwapsPassword() throws Exception {
+        String email = uniqueEmail();
+        ResultActions registered = register(email);
+        String accessToken = field(registered, "$.accessToken");
+        String refreshToken = field(registered, "$.refreshToken");
+
+        mockMvc.perform(put("/api/users/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("currentPassword", PASSWORD, "newPassword", NEW_PASSWORD))))
+                .andExpect(status().isNoContent());
+
+        refresh(refreshToken).andExpect(status().isUnauthorized());
+        login(email, NEW_PASSWORD).andExpect(status().isOk());
+        login(email, PASSWORD).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void adminEndpoint_userRole_returns403() throws Exception {
+        String accessToken = field(register(uniqueEmail()), "$.accessToken");
+
+        mockMvc.perform(get("/api/admin/anything").header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void refreshToken_storedInDatabase_isHashedNotRaw() throws Exception {
+        String email = uniqueEmail();
+        String refreshToken = field(register(email), "$.refreshToken");
+
+        List<String> storedHashes = jdbcTemplate.queryForList(
+                "select rt.token_hash from refresh_tokens rt join users u on u.id = rt.user_id where u.email = ?",
+                String.class, email);
+
+        assertThat(storedHashes).hasSize(1).doesNotContain(refreshToken);
+        assertThat(storedHashes.getFirst()).isEqualTo(RefreshTokenService.hash(refreshToken));
+    }
+
+    private ResultActions register(String email) throws Exception {
+        return postJson("/api/auth/register", Map.of(
+                "email", email, "password", PASSWORD, "firstName", "Ali", "lastName", "Veli"));
+    }
+
+    private ResultActions login(String email, String password) throws Exception {
+        return postJson("/api/auth/login", Map.of("email", email, "password", password));
+    }
+
+    private ResultActions refresh(String refreshToken) throws Exception {
+        return postJson("/api/auth/refresh", Map.of("refreshToken", refreshToken));
+    }
+
+    private ResultActions postJson(String url, Map<String, String> body) throws Exception {
+        return mockMvc.perform(post(url).contentType(MediaType.APPLICATION_JSON).content(json(body)));
+    }
+
+    private String json(Map<String, String> body) {
+        return jsonMapper.writeValueAsString(body);
+    }
+
+    private static String field(ResultActions result, String path) throws Exception {
+        return JsonPath.read(result.andReturn().getResponse().getContentAsString(), path);
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    private static String uniqueEmail() {
+        return "user-" + UUID.randomUUID() + "@satmis.com";
+    }
+}

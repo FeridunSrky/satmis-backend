@@ -1,0 +1,154 @@
+[
+ {
+  "name": "Audi",
+  "models": [
+   {"name": "A3", "series": ["30 TFSI", "35 TFSI", "30 TDI", "35 TDI"]},
+   {"name": "A4", "series": ["40 TFSI", "40 TDI", "45 TFSI quattro"]},
+   {"name": "A6", "series": ["40 TDI", "45 TFSI", "50 TDI quattro"]},
+   {"name": "Q3", "series": ["35 TFSI", "35 TDI", "40 TDI quattro"]},
+   {"name": "Q5", "series": ["40 TDI quattro", "45 TFSI quattro"]}
+  ]
+ },
+ {
+  "name": "BMW",
+  "models": [
+   {"name": "1 Serisi", "series": ["116d", "118i", "120i"]},
+   {"name": "3 Serisi", "series": ["318i", "320i", "320d", "330e"]},
+   {"name": "5 Serisi", "series": ["520i", "520d", "530e"]},
+   {"name": "X1", "series": ["sDrive18i", "sDrive18d", "xDrive23d"]},
+   {"name": "X3", "series": ["sDrive20i", "xDrive20d", "xDrive30e"]}
+  ]
+ },
+ {
+  "name": "Citroën",
+  "models": [
+   {"name": "C3", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "C4", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "C5 Aircross", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "C-Elysée", "series": ["1.2 PureTech", "1.6 BlueHDi"]}
+  ]
+ },
+ {
+  "name": "Dacia",
+  "models": [
+   {"name": "Sandero", "series": ["1.0 SCe", "1.0 TCe"]},
+   {"name": "Duster", "series": ["1.0 TCe", "1.3 TCe", "1.5 Blue dCi"]},
+   {"name": "Jogger", "series": ["1.0 TCe", "1.6 Hybrid"]}
+  ]
+ },
+ {
+  "name": "Fiat",
+  "models": [
+   {"name": "Egea", "series": ["1.3 Multijet", "1.4 Fire", "1.6 Multijet", "1.5 Hybrid"]},
+   {"name": "Egea Cross", "series": ["1.4 Fire", "1.6 Multijet", "1.5 Hybrid"]},
+   {"name": "Doblo", "series": ["1.3 Multijet", "1.6 Multijet"]},
+   {"name": "Fiorino", "series": ["1.3 Multijet", "1.4 Fire"]},
+   {"name": "Linea", "series": ["1.3 Multijet", "1.4 Fire", "1.6 Multijet"]}
+  ]
+ },
+ {
+  "name": "Ford",
+  "models": [
+   {"name": "Fiesta", "series": ["1.0 EcoBoost", "1.4 TDCi", "1.5 TDCi"]},
+   {"name": "Focus", "series": ["1.0 EcoBoost", "1.5 EcoBlue", "1.6 TDCi"]},
+   {"name": "Kuga", "series": ["1.5 EcoBoost", "1.5 EcoBlue", "2.5 Hybrid"]},
+   {"name": "Puma", "series": ["1.0 EcoBoost", "1.0 EcoBoost Hybrid"]},
+   {"name": "Courier", "series": ["1.0 EcoBoost", "1.5 EcoBlue"]},
+   {"name": "Transit Custom", "series": ["2.0 EcoBlue"]}
+  ]
+ },
+ {
+  "name": "Honda",
+  "models": [
+   {"name": "Civic", "series": ["1.5 VTEC Turbo", "1.6 i-VTEC", "2.0 e:HEV"]},
+   {"name": "City", "series": ["1.5 i-VTEC"]},
+   {"name": "CR-V", "series": ["1.5 VTEC Turbo", "2.0 e:HEV"]},
+   {"name": "HR-V", "series": ["1.5 i-VTEC", "1.5 e:HEV"]}
+  ]
+ },
+ {
+  "name": "Hyundai",
+  "models": [
+   {"name": "i10", "series": ["1.0 MPI", "1.2 MPI"]},
+   {"name": "i20", "series": ["1.0 T-GDI", "1.2 MPI", "1.4 MPI"]},
+   {"name": "Accent Blue", "series": ["1.4 CVVT", "1.6 CRDi"]},
+   {"name": "Elantra", "series": ["1.6 MPI", "1.6 CRDi"]},
+   {"name": "Tucson", "series": ["1.6 T-GDI", "1.6 CRDi", "1.6 T-GDI Hybrid"]},
+   {"name": "Bayon", "series": ["1.0 T-GDI", "1.4 MPI"]}
+  ]
+ },
+ {
+  "name": "Mercedes-Benz",
+  "models": [
+   {"name": "A Serisi", "series": ["A 180", "A 200", "A 180 d"]},
+   {"name": "C Serisi", "series": ["C 180", "C 200", "C 200 d", "C 220 d"]},
+   {"name": "E Serisi", "series": ["E 180", "E 200", "E 220 d"]},
+   {"name": "GLA", "series": ["GLA 200", "GLA 200 d"]},
+   {"name": "GLC", "series": ["GLC 200 4MATIC", "GLC 220 d 4MATIC"]},
+   {"name": "Vito", "series": ["114 CDI", "116 CDI", "119 CDI"]}
+  ]
+ },
+ {
+  "name": "Nissan",
+  "models": [
+   {"name": "Micra", "series": ["1.0 IG-T", "1.2"]},
+   {"name": "Juke", "series": ["1.0 DIG-T", "1.6 Hybrid"]},
+   {"name": "Qashqai", "series": ["1.3 DIG-T", "1.5 dCi", "1.5 e-Power"]},
+   {"name": "X-Trail", "series": ["1.5 VC-T", "1.6 dCi"]}
+  ]
+ },
+ {
+  "name": "Opel",
+  "models": [
+   {"name": "Corsa", "series": ["1.2", "1.2 Turbo", "1.4", "1.5 D"]},
+   {"name": "Astra", "series": ["1.2 Turbo", "1.4 Turbo", "1.5 D", "1.6 CDTI"]},
+   {"name": "Insignia", "series": ["1.5 Turbo", "1.6 CDTI", "2.0 CDTI"]},
+   {"name": "Mokka", "series": ["1.2 Turbo", "1.5 D"]},
+   {"name": "Combo", "series": ["1.5 D", "1.6 CDTI"]}
+  ]
+ },
+ {
+  "name": "Peugeot",
+  "models": [
+   {"name": "208", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "301", "series": ["1.2 PureTech", "1.5 BlueHDi", "1.6 HDi"]},
+   {"name": "308", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "2008", "series": ["1.2 PureTech", "1.5 BlueHDi"]},
+   {"name": "3008", "series": ["1.2 PureTech", "1.5 BlueHDi", "1.6 Hybrid"]},
+   {"name": "Rifter", "series": ["1.2 PureTech", "1.5 BlueHDi"]}
+  ]
+ },
+ {
+  "name": "Renault",
+  "models": [
+   {"name": "Clio", "series": ["1.0 SCe", "1.0 TCe", "1.5 Blue dCi", "1.6 E-Tech Hybrid"]},
+   {"name": "Megane", "series": ["1.3 TCe", "1.5 Blue dCi", "1.6 E-Tech Plug-in"]},
+   {"name": "Taliant", "series": ["1.0 SCe", "1.0 Turbo"]},
+   {"name": "Captur", "series": ["1.0 TCe", "1.3 TCe", "1.6 E-Tech Hybrid"]},
+   {"name": "Austral", "series": ["1.3 TCe Mild Hybrid", "1.2 E-Tech Full Hybrid"]},
+   {"name": "Symbol", "series": ["1.0 SCe", "1.2", "1.5 dCi"]}
+  ]
+ },
+ {
+  "name": "Toyota",
+  "models": [
+   {"name": "Yaris", "series": ["1.0 VVT-i", "1.5", "1.5 Hybrid"]},
+   {"name": "Corolla", "series": ["1.5", "1.6", "1.8 Hybrid", "1.4 D-4D"]},
+   {"name": "C-HR", "series": ["1.2 Turbo", "1.8 Hybrid", "2.0 Hybrid"]},
+   {"name": "RAV4", "series": ["2.0", "2.5 Hybrid"]},
+   {"name": "Hilux", "series": ["2.4 D-4D", "2.8 D-4D"]}
+  ]
+ },
+ {
+  "name": "Volkswagen",
+  "models": [
+   {"name": "Polo", "series": ["1.0", "1.0 TSI", "1.6 TDI"]},
+   {"name": "Golf", "series": ["1.0 eTSI", "1.4 TSI", "1.5 eTSI", "1.6 TDI", "2.0 TDI"]},
+   {"name": "Passat", "series": ["1.4 TSI", "1.5 TSI", "1.6 TDI", "2.0 TDI"]},
+   {"name": "T-Roc", "series": ["1.0 TSI", "1.5 TSI", "2.0 TDI"]},
+   {"name": "Tiguan", "series": ["1.4 TSI", "1.5 eTSI", "2.0 TDI"]},
+   {"name": "Caddy", "series": ["1.6 TDI", "2.0 TDI"]},
+   {"name": "Transporter", "series": ["2.0 TDI"]}
+  ]
+ }
+]
