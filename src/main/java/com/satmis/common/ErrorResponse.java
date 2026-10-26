@@ -10,17 +10,22 @@ import java.util.Map;
 public record ErrorResponse(
         Instant timestamp,
         int status,
+        ErrorCode code,
         String message,
         String path,
         Map<String, String> errors
 ) {
 
     public static ErrorResponse of(HttpStatusCode status, String message, String path) {
-        return new ErrorResponse(Instant.now(), status.value(), message, path, null);
+        return of(status, null, message, path);
+    }
+
+    public static ErrorResponse of(HttpStatusCode status, ErrorCode code, String message, String path) {
+        return new ErrorResponse(Instant.now(), status.value(), code, message, path, null);
     }
 
     public static ErrorResponse withErrors(HttpStatusCode status, String message, String path,
                                            Map<String, String> errors) {
-        return new ErrorResponse(Instant.now(), status.value(), message, path, errors);
+        return new ErrorResponse(Instant.now(), status.value(), null, message, path, errors);
     }
 }

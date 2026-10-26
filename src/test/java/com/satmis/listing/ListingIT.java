@@ -32,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -48,6 +49,7 @@ class ListingIT {
 
     private static final String LISTINGS = "/api/listings";
     private static final String PASSWORD = "Sifre1234";
+    private static final String SELLER_PHONE = "+905321234567";
     private static final String IMAGE_1 = "https://cdn.satmis.com/1.jpg";
     private static final String IMAGE_2 = "https://cdn.satmis.com/2.jpg";
     private static final int MAX_QUERIES_PER_SEARCH_PAGE = 4;
@@ -126,7 +128,49 @@ class ListingIT {
     void create_unknownSeries_returns422() throws Exception {
         Map<String, Object> body = listingBody(Long.MAX_VALUE, district("İstanbul", "Kadıköy"));
 
-        perform(post(LISTINGS), registerUser(), body).andExpect(status().isUnprocessableContent());
+        perform(post(LISTINGS), registerUser(), body)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    @Test
+    void create_ownerWithoutPhone_returns422WithPhoneRequiredCode() throws Exception {
+        String token = registerUser();
+        long ownerId = userId(token);
+        jdbcTemplate.update("update users set phone = null where id = ?", ownerId);
+        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+
+        perform(post(LISTINGS), token, body)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("PHONE_REQUIRED"))
+                .andExpect(jsonPath("$.message").value("İlan vermek için profilinize telefon numarası ekleyin"));
+        assertThat(jdbcTemplate.queryForObject("select count(*) from listings where user_id = ?", Integer.class,
+                ownerId)).isZero();
+    }
+
+    @Test
+    void getDetail_sellerPhone_onlyVisibleToAuthenticatedViewers() throws Exception {
+        long listingId = createListing(registerUser(), series("Renault", "Clio", "1.0 TCe"),
+                district("İstanbul", "Kadıköy"));
+
+        mockMvc.perform(get(LISTINGS + "/{id}", listingId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.seller.phone").value(nullValue()))
+                .andExpect(jsonPath("$.seller.email").doesNotExist());
+        perform(get(LISTINGS + "/{id}", listingId), registerUser(), null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.seller.phone").value(SELLER_PHONE))
+                .andExpect(jsonPath("$.seller.email").doesNotExist());
+    }
+
+    @Test
+    void search_summaries_neverContainSellerPhone() throws Exception {
+        createListing(registerUser(), series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+
+        String response = perform(get(LISTINGS), registerUser(), null)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain(SELLER_PHONE);
     }
 
     @Test
@@ -413,7 +457,7 @@ class ListingIT {
 
     private String registerUser() throws Exception {
         Map<String, String> body = Map.of("email", "seller-" + UUID.randomUUID() + "@satmis.com",
-                "password", PASSWORD, "firstName", "Ayşe", "lastName", "Yılmaz");
+                "password", PASSWORD, "firstName", "Ayşe", "lastName", "Yılmaz", "phone", SELLER_PHONE);
         String response = perform(post("/api/auth/register"), null, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

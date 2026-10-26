@@ -26,7 +26,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ErrorResponse> handleApi(ApiException ex, HttpServletRequest request) {
-        return build(ex.getStatus(), ex.getMessage(), request);
+        return ResponseEntity.status(ex.getStatus())
+                .body(ErrorResponse.of(ex.getStatus(), ex.getCode(), ex.getMessage(), request.getRequestURI()));
     }
 
     // BindException also covers query-parameter objects (search filters, paging), not only request bodies

@@ -1,6 +1,6 @@
 # satmis.com — Frontend API devir notu
 
-Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçları değişmedi; mevcut frontend kodu onlarla uyumlu.
+Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarında tek değişiklik telefon numarasıdır (bkz. "Telefon numarası ve satıcı iletişimi").
 
 - **Tek doğruluk kaynağı OpenAPI'dir:** backend çalışırken `http://localhost:8080/v3/api-docs` (Swagger UI: `/swagger-ui.html`). TypeScript tiplerini oradan üretmek önerilir (openapi-typescript / orval). Bu nottaki tipler elle yazılmıştır ve kuralları açıklamak içindir.
 - Geliştirmede istekler Vite proxy üzerinden gider (`/api` → `http://localhost:8080`), CORS gerekmez.
@@ -10,7 +10,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an tek değer: `PHONE_REQUIRED`); diğer hatalarda alan hiç yoktur. |
 | Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel adresi hataları tek anahtar altında döner (`imageUrls`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
@@ -18,6 +18,24 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 | Id'ler | Sayı (`number`). Path'te sayı olmayan id → 400. |
 | Kimlik | Korumalı uçlarda `Authorization: Bearer <accessToken>`. Token yoksa/geçersizse 401, yetki yoksa 403. |
 | Oluşturma | `201 Created` + `Location` header'ı + oluşan kaydın gövdesi. |
+
+## Telefon numarası ve satıcı iletişimi
+
+Alıcılar satıcıya telefonla ulaşır; bu yüzden telefon zorunludur.
+
+| Uç | Kural |
+|---|---|
+| `POST /api/auth/register` | `phone` **zorunlu**, desen `^\+?[0-9]{10,15}$` (örn. `+905321234567`, `05321234567`). Eksik/geçersiz → 400, `errors.phone`. |
+| `PUT /api/users/me` | `phone` **zorunlu**; değiştirilebilir ama boşaltılamaz. Eksik/boş/geçersiz → 400, `errors.phone`, kayıtlı numara değişmez. |
+| `POST /api/listings` | Kullanıcının profilinde telefon yoksa → 422, `code: "PHONE_REQUIRED"`, mesaj "İlan vermek için profilinize telefon numarası ekleyin". Frontend bu durumda kullanıcıyı profil sayfasına yönlendirmeli. Kayıtta telefon zorunlu olduğu için normalde oluşmaz; eski/bozuk kayıtlara karşı korumadır. |
+| `GET /api/listings/{id}` | `seller.phone`: istek geçerli access token ile geliyorsa satıcının numarası, anonim istekte `null` (botların numara toplamasını zorlaştırmak için). `seller` içinde e-posta hiç dönmez. |
+| Liste uçları | `GET /api/listings`, `/api/users/me/listings`, `/api/users/me/favorites` telefon **döndürmez**. |
+
+422'yi ayırt etmek için durum koduna değil `code` alanına bakın: ilan oluştururken 422 başka sebeplerle de döner (seri/ilçe bulunamadı) ve onlarda `code` yoktur.
+
+```ts
+if (error.status === 422 && error.code === 'PHONE_REQUIRED') navigate('/profil');
+```
 
 ## Sayfalı cevap
 
@@ -129,7 +147,7 @@ interface ListingDetail {
   favoritedByMe: boolean;   // token yoksa her zaman false
   createdAt: string;
   updatedAt: string;
-  seller: { id: number; firstName: string; lastName: string };
+  seller: { id: number; firstName: string; lastName: string; phone: string | null }; // phone: anonimde null
   location: { cityId: number; cityName: string; districtId: number; districtName: string };
   vehicle: {
     brandId: number; brandName: string;
@@ -153,7 +171,7 @@ interface ListingDetail {
 }
 ```
 
-Satıcının telefon ve e-postası bilinçli olarak dönmüyor (iletişim özelliği henüz yok). "Bu ilan benim mi?" kontrolü için `seller.id === currentUser.id` kullanın.
+Satıcının e-postası bilinçli olarak dönmüyor; telefon sadece giriş yapmış kullanıcılara döner (anonimde `null` → "Numarayı görmek için giriş yapın" gösterilebilir). "Bu ilan benim mi?" kontrolü için `seller.id === currentUser.id` kullanın.
 
 ### Oluşturma ve güncelleme gövdesi
 
@@ -201,6 +219,7 @@ interface ListingRequest {
 | 404 | İlan yok **veya** ACTIVE değil ve bakan kişi sahibi değil | "İlan bulunamadı" sayfası |
 | 409 | `version` eski: ilan arada başka yerden güncellenmiş | Uyarı göster, detayı yeniden çek, kullanıcı tekrar denesin |
 | 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi | `message`'ı göster |
+| 422 + `code: "PHONE_REQUIRED"` | Profilde telefon yokken ilan verme | Profil sayfasına yönlendir |
 
 ### Durum geçişleri (`PATCH /api/listings/{id}/status`, gövde `{ "status": "PASSIVE" }`)
 
@@ -249,7 +268,7 @@ Diğer her geçiş (PENDING_APPROVAL dahil) 422 döner. Yeni ilanlar şu an doğ
 - Gerçek görsel yükleme yok (sadece https URL).
 - Kelimeyle arama (`q`) yok.
 - Fiyat filtresi kur çevirmez.
-- Satıcı iletişim bilgisi dönmüyor.
+- Satıcıyla iletişim sadece telefonla (mesajlaşma yok); e-posta hiç paylaşılmaz.
 - Admin uçları (ilan onayı, katalog yönetimi) yok.
 
 Backend tarafında uyumsuzluk veya eksik bulunursa backend reposunda düzeltilir; frontend sözleşmeyi kendi tarafında değiştirmemeli.

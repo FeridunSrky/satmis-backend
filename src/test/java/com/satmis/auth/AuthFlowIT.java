@@ -39,6 +39,7 @@ class AuthFlowIT {
 
     private static final String PASSWORD = "Sifre1234";
     private static final String NEW_PASSWORD = "YeniSifre5678";
+    private static final String PHONE = "+905321234567";
 
     @Container
     @ServiceConnection
@@ -86,6 +87,41 @@ class AuthFlowIT {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.email").isNotEmpty())
                 .andExpect(jsonPath("$.errors.password").isNotEmpty());
+    }
+
+    @Test
+    void register_missingOrInvalidPhone_returns400WithPhoneError() throws Exception {
+        postJson("/api/auth/register", Map.of(
+                "email", uniqueEmail(), "password", PASSWORD, "firstName", "Ali", "lastName", "Veli"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.phone").isNotEmpty());
+        postJson("/api/auth/register", Map.of(
+                "email", uniqueEmail(), "password", PASSWORD, "firstName", "Ali", "lastName", "Veli", "phone", "12ab"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.phone").isNotEmpty());
+    }
+
+    @Test
+    void updateProfile_changePhone_returnsUpdatedPhone() throws Exception {
+        String accessToken = field(register(uniqueEmail()), "$.accessToken");
+
+        updateProfile(accessToken, Map.of("firstName", "Ali", "lastName", "Veli", "phone", "05441112233"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.phone").value("05441112233"));
+    }
+
+    @Test
+    void updateProfile_blankOrMissingPhone_returns400AndKeepsPhone() throws Exception {
+        String accessToken = field(register(uniqueEmail()), "$.accessToken");
+
+        updateProfile(accessToken, Map.of("firstName", "Ali", "lastName", "Veli", "phone", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.phone").isNotEmpty());
+        updateProfile(accessToken, Map.of("firstName", "Ali", "lastName", "Veli"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.phone").isNotEmpty());
+        mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, bearer(accessToken)))
+                .andExpect(jsonPath("$.phone").value(PHONE));
     }
 
     @Test
@@ -170,7 +206,14 @@ class AuthFlowIT {
 
     private ResultActions register(String email) throws Exception {
         return postJson("/api/auth/register", Map.of(
-                "email", email, "password", PASSWORD, "firstName", "Ali", "lastName", "Veli"));
+                "email", email, "password", PASSWORD, "firstName", "Ali", "lastName", "Veli", "phone", PHONE));
+    }
+
+    private ResultActions updateProfile(String accessToken, Map<String, String> body) throws Exception {
+        return mockMvc.perform(put("/api/users/me")
+                .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(body)));
     }
 
     private ResultActions login(String email, String password) throws Exception {

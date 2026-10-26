@@ -162,7 +162,7 @@ class FavoriteIT {
 
     private String registerUser() throws Exception {
         Map<String, String> body = Map.of("email", "fan-" + UUID.randomUUID() + "@satmis.com",
-                "password", "Sifre1234", "firstName", "Can", "lastName", "Demir");
+                "password", "Sifre1234", "firstName", "Can", "lastName", "Demir", "phone", "+905339876543");
         String response = perform(post("/api/auth/register"), null, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

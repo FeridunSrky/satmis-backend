@@ -32,6 +32,7 @@ Boot 4 notları:
 - STS açıkken `target/classes`'a ECJ de yazar; Maven'ın ona güvenmemesi için testleri `./mvnw clean verify` ile çalıştır.
 - `spring.jpa.open-in-view=false`: lazy veriye Service içinde (`@Transactional`) erişilir ve orada DTO'ya çevrilir. Okuma metotları `readOnly = true`.
 - Hatalar `ApiException` + `GlobalExceptionHandler` ile standart `ErrorResponse` JSON'u olarak döner.
+- Frontend'in durum kodundan ayırt edemeyeceği hatalar `ErrorCode` enum'una değer ekleyip `new ApiException(status, code, message)` ile atılır (örn. `PHONE_REQUIRED`); `code` diğer hatalarda JSON'a yazılmaz.
 - Tipli konfigürasyon `@ConfigurationProperties` record'ları ile (`JwtProperties`, `CorsProperties`); dağınık `@Value` yok.
 - Büyük/küçük harf dönüşümünde `Locale.ROOT` kullanılır (Türkçe locale'de `I` → `ı` sorunu). E-posta için `EmailNormalizer`.
 - Kullanıcıya dönen mesajlar Türkçe, kod ve değişken isimleri İngilizce.
@@ -47,6 +48,7 @@ Boot 4 notları:
 - Lokalde bu değerler proje kökündeki git-ignored `.env` dosyasından okunur (`spring.config.import=optional:file:.env[.properties]`); STS/terminal/Maven aynı dosyayı görür. Sunucuda `.env` yoktur, gerçek ortam değişkeni/secret manager kullanılır ve ortam değişkeni `.env`'i ezer. Her ortamın kendi JWT secret'ı olur.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var.
 - Rol hiçbir zaman istemciden alınmaz.
+- Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
 - Kullanıcı yalnızca kendi kaydını değiştirebilir (sahiplik kontrolü Service'te yapılır; kullanıcı id'si URL'den değil token'dan alınır).
 - Yetki kuralları `SecurityConfig`'te: `/api/auth/**`, `GET /api/listings/**`, `GET /api/catalog/**` ve Swagger yolları açık; `/api/admin/**` sadece ADMIN; geri kalanı kimlik ister.
 

@@ -5,9 +5,11 @@ import com.satmis.catalog.DistrictRepository;
 import com.satmis.catalog.VehicleSeries;
 import com.satmis.catalog.VehicleSeriesRepository;
 import com.satmis.common.ApiException;
+import com.satmis.common.ErrorCode;
 import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingRequest;
+import com.satmis.user.User;
 import com.satmis.user.UserRepository;
 import com.satmis.vehicle.VehicleDetail;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +41,7 @@ public class ListingService {
     @Transactional
     public ListingDetailResponse create(Long ownerId, ListingRequest request) {
         Listing listing = new Listing();
-        listing.setOwner(userRepository.getReferenceById(ownerId));
+        listing.setOwner(findOwnerWithPhone(ownerId));
         listing.setVehicleDetail(new VehicleDetail());
         applyRequest(listing, request);
         return listingDetailAssembler.assemble(listingRepository.save(listing), ownerId);
@@ -98,6 +100,17 @@ public class ListingService {
             image.setCover(index == 0);
             listing.addImage(image);
         }
+    }
+
+    // Buyers reach sellers by phone, so a listing without a contact number is useless
+    private User findOwnerWithPhone(Long ownerId) {
+        User owner = userRepository.findById(ownerId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Kullanıcı bulunamadı"));
+        if (owner.getPhone() == null || owner.getPhone().isBlank()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.PHONE_REQUIRED,
+                    "İlan vermek için profilinize telefon numarası ekleyin");
+        }
+        return owner;
     }
 
     private Listing findOwnedListing(Long listingId, Long userId) {

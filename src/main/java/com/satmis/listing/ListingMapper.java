@@ -16,12 +16,16 @@ import org.mapstruct.ReportingPolicy;
 public interface ListingMapper {
 
     @Mapping(target = "id", source = "listing.id")
-    @Mapping(target = "seller", source = "listing.owner")
+    @Mapping(target = "seller", expression = "java(toSeller(listing.getOwner(), includeSellerPhone))")
     @Mapping(target = "location", source = "listing.district")
     @Mapping(target = "vehicle", source = "listing.vehicleDetail")
-    ListingDetailResponse toDetail(Listing listing, long favoriteCount, boolean favoritedByMe);
+    ListingDetailResponse toDetail(Listing listing, long favoriteCount, boolean favoritedByMe,
+                                   boolean includeSellerPhone);
 
-    ListingDetailResponse.Seller toSeller(User user);
+    default ListingDetailResponse.Seller toSeller(User owner, boolean includePhone) {
+        return new ListingDetailResponse.Seller(owner.getId(), owner.getFirstName(), owner.getLastName(),
+                includePhone ? owner.getPhone() : null);
+    }
 
     @Mapping(target = "cityId", source = "city.id")
     @Mapping(target = "cityName", source = "city.name")

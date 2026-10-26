@@ -17,6 +17,7 @@ class ListingDetailAssembler {
         long favoriteCount = favoriteRepository.countByListingId(listing.getId());
         boolean favoritedByMe = viewerId != null
                 && favoriteRepository.existsByUserIdAndListingId(viewerId, listing.getId());
-        return listingMapper.toDetail(listing, favoriteCount, favoritedByMe);
+        boolean viewerAuthenticated = viewerId != null;
+        return listingMapper.toDetail(listing, favoriteCount, favoritedByMe, viewerAuthenticated);
     }
 }

@@ -24,6 +24,7 @@ public record RegisterRequest(
         @Size(max = 50, message = "Soyad en fazla 50 karakter olabilir")
         String lastName,
 
+        @NotBlank(message = "Telefon numarası zorunludur")
         @Pattern(regexp = ValidationPatterns.PHONE, message = "Telefon numarası 10-15 haneli olmalıdır")
         String phone
 ) {

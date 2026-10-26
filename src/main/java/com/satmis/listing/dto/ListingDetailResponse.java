@@ -8,6 +8,7 @@ import com.satmis.enums.GearType;
 import com.satmis.enums.ListingStatus;
 import com.satmis.enums.Traction;
 import com.satmis.enums.VehicleCondition;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,8 +33,14 @@ public record ListingDetailResponse(
         List<Image> images
 ) {
 
-    // Contact details are deliberately left out until a messaging/contact feature decides how to expose them
-    public record Seller(Long id, String firstName, String lastName) {
+    // E-mail is never exposed; phone is null for anonymous viewers so bots cannot harvest numbers
+    public record Seller(
+            Long id,
+            String firstName,
+            String lastName,
+            @Schema(nullable = true, description = "Sadece giriş yapmış kullanıcılara döner, anonim istekte null")
+            String phone
+    ) {
     }
 
     public record Location(Long cityId, String cityName, Long districtId, String districtName) {
