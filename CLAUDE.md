@@ -69,7 +69,7 @@ Boot 4 notları:
 - Birim testleri `*Test(s)` → surefire; entegrasyon testleri `*IT` → failsafe (`./mvnw verify`). Docker açık olmalı.
 - Entegrasyon testleri Testcontainers + `@ServiceConnection` ile gerçek PostgreSQL 16 kullanır; JWT secret `TestJwtSecret.random()` ile `@DynamicPropertySource` üzerinden verilir.
 - Test adı: `method_condition_expectedResult`. Testi geçirmek için test zayıflatılmaz.
-- CI: `.github/workflows/ci.yml`, `master`'a push ve PR'larda `./mvnw clean verify` ve ardından Docker imaj build'i (push etmez). Hata olursa test raporları artifact olarak yüklenir.
+- CI: `.github/workflows/ci.yml`, `main`'e push ve PR'larda `./mvnw clean verify` ve ardından Docker imaj build'i (push etmez). Hata olursa test raporları artifact olarak yüklenir.
 - `mvnw` git'te çalıştırılabilir (`100755`) olmalı; Windows bunu göstermez ama Linux CI/Docker ister.
 
 ## Çalışma kuralları
