@@ -60,6 +60,7 @@ Boot 4 notları:
 - Eksik ortam değişkeni `RequiredEnvironmentInitializer` ile açılışta adıyla raporlanır (Spring çözülemeyen `${VAR}`'ı düz metin olarak bırakır). Profile yeni zorunlu değişken eklenirse oraya da eklenir.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var. İptal edilen token'lar reuse algılama için süreleri dolana kadar tutulur; `RefreshTokenCleanupJob` süresi dolanları her gün siler (`app.jwt.refresh-token-cleanup-cron`).
 - Rol hiçbir zaman istemciden alınmaz.
+- Rate limiting: `RateLimitFilter` (Bucket4j, bellek içi, IP başına) `POST /api/auth/login|register|refresh` uçlarını sınırlar; aşılınca `429` + `Retry-After` + standart `ErrorResponse`. Limitler `app.rate-limit.*`'ta. Testlerde `application-test.properties` ile kapalı, `RateLimitIT` açıp dener. Yeni bir e-posta/SMS gönderen uç eklenirse oraya da limit eklenir. Loglara IP yazılmaz. Reverse proxy arkasında (deploy) gerçek IP için `server.forward-headers-strategy` ayarlanmalı.
 - Gönderilmiş ama geçersiz/süresi dolmuş Bearer token açık uçlarda da 401 döner (sessizce anonim sayılmaz, yoksa istemci token yenilemez). Token hiç yoksa istek anonimdir. `/api/auth/**` token'a bakmaz.
 - Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
 - Kullanıcı yalnızca kendi kaydını değiştirebilir (sahiplik kontrolü Service'te yapılır; kullanıcı id'si URL'den değil token'dan alınır).

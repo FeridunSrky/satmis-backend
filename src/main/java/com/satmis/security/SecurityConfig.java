@@ -26,7 +26,7 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class, RateLimitProperties.class})
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -36,6 +36,7 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final RestSecurityHandler restSecurityHandler;
     private final CorsProperties corsProperties;
+    private final RateLimitProperties rateLimitProperties;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -54,7 +55,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService, restSecurityHandler),
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new RateLimitFilter(rateLimitProperties, restSecurityHandler),
+                        JwtAuthenticationFilter.class);
         return http.build();
     }
 
@@ -74,8 +77,9 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(corsProperties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
-        // Browsers hide non-simple response headers from JS unless exposed; create endpoints return Location
-        configuration.setExposedHeaders(List.of(HttpHeaders.LOCATION));
+        // Browsers hide non-simple response headers from JS unless exposed: create endpoints return Location,
+        // rate-limited endpoints return Retry-After
+        configuration.setExposedHeaders(List.of(HttpHeaders.LOCATION, HttpHeaders.RETRY_AFTER));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

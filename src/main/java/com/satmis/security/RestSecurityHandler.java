@@ -25,17 +25,18 @@ public class RestSecurityHandler implements AuthenticationEntryPoint, AccessDeni
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
-        write(response, request, HttpStatus.UNAUTHORIZED, "Kimlik doğrulama gerekli veya token geçersiz");
+        writeError(response, request, HttpStatus.UNAUTHORIZED, "Kimlik doğrulama gerekli veya token geçersiz");
     }
 
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException accessDeniedException) throws IOException {
-        write(response, request, HttpStatus.FORBIDDEN, "Bu işlem için yetkiniz yok");
+        writeError(response, request, HttpStatus.FORBIDDEN, "Bu işlem için yetkiniz yok");
     }
 
-    private void write(HttpServletResponse response, HttpServletRequest request,
-                       HttpStatus status, String message) throws IOException {
+    // Filters run before MVC's exception handling, so they write the standard error body themselves
+    public void writeError(HttpServletResponse response, HttpServletRequest request,
+                           HttpStatus status, String message) throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
