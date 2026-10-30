@@ -40,8 +40,11 @@ Boot 4 notları:
 
 ## Veritabanı
 - Lokal geliştirme makinedeki PostgreSQL'e bağlanır (`application.properties` varsayılanları, port 5432). `docker-compose.yml`'deki Postgres 16 alternatiftir ve 5432 dolu olduğu için host'ta 5433'te açılır.
-- Şema şimdilik Hibernate `ddl-auto=update` ile yönetiliyor. Flyway'e ileride geçilecek; geçerken `spring-boot-starter-flyway` kullanılır.
-- Tabloyu sıfırdan kurmak gerekirse dosyayı değiştirmeden tek seferlik: `--spring.jpa.hibernate.ddl-auto=create`.
+- Şema Flyway ile yönetilir: `src/main/resources/db/migration/V<n>__<aciklama>.sql`. Hibernate `ddl-auto=validate` ile sadece entity–şema uyumunu kontrol eder; uyuşmazlıkta uygulama açılmaz.
+- Entity değişikliği = yeni migration (`V2__add_xxx.sql` …). Uygulanmış bir migration dosyası asla değiştirilmez (Flyway checksum hatası verir); düzeltme de yeni migration'la yapılır.
+- Enum kolonlarında CHECK constraint var: enum'a yeni değer eklemek migration gerektirir.
+- Migration SQL'ini elle yazdıktan sonra `./mvnw clean verify` çalıştır; tüm IT'ler boş DB'de migration + validate ile açılır, `FlywayMigrationIT` migration durumunu kontrol eder.
+- Lokal DB'yi sıfırlamak gerekirse veritabanını drop/create et; açılışta Flyway şemayı, `CatalogSeedRunner` katalog verisini kurar.
 
 ## Güvenlik
 - Sır (JWT secret, şifre, token) koda, loga ya da Git'e yazılmaz. Ortam değişkeni kullanılır (`JWT_SECRET`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`; örnek: `.env.example`).
