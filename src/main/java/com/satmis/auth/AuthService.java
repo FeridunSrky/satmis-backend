@@ -4,9 +4,11 @@ import com.satmis.auth.dto.AuthResponse;
 import com.satmis.auth.dto.LoginRequest;
 import com.satmis.auth.dto.RegisterRequest;
 import com.satmis.common.ApiException;
+import com.satmis.common.ErrorCode;
 import com.satmis.common.EmailNormalizer;
 import com.satmis.enums.Role;
 import com.satmis.security.CustomUserDetails;
+import com.satmis.security.JwtProperties;
 import com.satmis.security.JwtService;
 import com.satmis.user.User;
 import com.satmis.user.UserMapper;
@@ -37,6 +39,7 @@ public class AuthService {
     private final AuthenticationManager authenticationManager;
     private final UserMapper userMapper;
     private final EmailVerificationService emailVerificationService;
+    private final JwtProperties jwtProperties;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -69,7 +72,12 @@ public class AuthService {
         User user = refreshToken.getUser();
 
         if (refreshToken.isRevoked()) {
-            // A rotated token being replayed means it may have been stolen
+            if (rotatedWithinGrace(refreshToken)) {
+                // Another tab rotated it a moment ago; the shared cookie already holds the new token
+                throw new ApiException(HttpStatus.UNAUTHORIZED, ErrorCode.REFRESH_TOKEN_ROTATED,
+                        "Oturum başka bir sekmede yenilendi, isteği tekrarlayın");
+            }
+            // A rotated token being replayed later means it may have been stolen
             refreshTokenRepository.revokeAllByUserId(user.getId());
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Oturum geçersiz, tekrar giriş yapın");
         }
@@ -81,7 +89,13 @@ public class AuthService {
         }
 
         refreshToken.setRevoked(true);
+        refreshToken.setRotatedAt(Instant.now());
         return buildResponse(user);
+    }
+
+    private boolean rotatedWithinGrace(RefreshToken refreshToken) {
+        return refreshToken.getRotatedAt() != null
+                && refreshToken.getRotatedAt().plus(jwtProperties.refreshReuseGrace()).isAfter(Instant.now());
     }
 
     @Transactional

@@ -1,6 +1,6 @@
 # satmis.com — Frontend API devir notu
 
-Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama, şifre sıfırlama ve istek sınırı (bkz. "E-posta doğrulama", "Şifre sıfırlama", "İstek sınırı (429)").
+Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama, şifre sıfırlama, istek sınırı ve refresh token cookie'si (bkz. "E-posta doğrulama", "Şifre sıfırlama", "İstek sınırı (429)", "Refresh token cookie'si").
 
 - **Tek doğruluk kaynağı OpenAPI'dir:** backend çalışırken `http://localhost:8080/v3/api-docs` (Swagger UI: `/swagger-ui.html`). TypeScript tiplerini oradan üretmek önerilir (openapi-typescript / orval). Bu nottaki tipler elle yazılmıştır ve kuralları açıklamak içindir.
 - Geliştirmede istekler Vite proxy üzerinden gider (`/api` → `http://localhost:8080`), CORS gerekmez.
@@ -11,7 +11,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`); diğer hatalarda alan hiç yoktur. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`); diğer hatalarda alan hiç yoktur. |
 | Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel adresi hataları tek anahtar altında döner (`imageUrls`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
@@ -68,6 +68,30 @@ if (error.status === 422 && error.code === 'EMAIL_NOT_VERIFIED') showVerifyEmail
 | `POST /api/auth/reset-password` | Gövde `{ "token": "...", "newPassword": "..." }`. Başarılı → `204`. Şifre 8–64 karakter değilse → `400`, `errors.newPassword` (link geçerliliğini korur, kullanıcı tekrar deneyebilir). Geçersiz/kullanılmış/süresi dolmuş link → `400`, mesaj "Şifre sıfırlama linki geçersiz veya süresi dolmuş, yeni bir link isteyin" (`errors` yok). |
 
 Başarılı sıfırlamadan sonra: kullanıcının **tüm oturumları kapanır** (refresh token'lar iptal; elindeki access token en fazla 15 dk daha geçerli kalır). E-posta da doğrulanmış sayılır (`emailVerified: true`). Frontend kullanıcıyı giriş sayfasına yönlendirip "Şifren değişti, yeni şifrenle giriş yap" demeli; tarayıcıda o kullanıcıya ait token varsa silmeli.
+
+## Refresh token cookie'si
+
+Refresh token artık backend tarafından **httpOnly cookie** olarak da yazılır. JavaScript bu cookie'yi okuyamaz; XSS olsa bile refresh token çalınamaz. Geçiş dönemi: gövdedeki `refreshToken` alanı ve gövdeyle refresh/logout **hâlâ çalışır ama deprecated**; frontend cookie'ye geçince kaldırılacak.
+
+| Konu | Kural |
+|---|---|
+| Cookie | `satmis_refresh`; `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Max-Age` 7 gün; prod'da `Secure`. Login, register ve refresh cevaplarında `Set-Cookie` ile gelir. Sadece `/api/auth/**` isteklerine eklenir. |
+| Access token | Değişmedi: gövdede `accessToken` gelir, `Authorization: Bearer` ile gönderilir. **Sadece bellekte** tutulmalı (localStorage/sessionStorage değil). Sayfa yenilenince kaybolur; uygulama açılışında `POST /api/auth/refresh` ile yenisi alınır. |
+| `POST /api/auth/refresh` | Gövde artık **isteğe bağlı**. Gövdede `refreshToken` varsa o kullanılır, yoksa cookie. Başarılı → `200` + yeni `accessToken` + yeni cookie (rotasyon). Ne gövde ne cookie → `401` "Refresh token bulunamadı" (eskiden boş gövde `400` dönüyordu). |
+| `POST /api/auth/logout` | Gövde isteğe bağlı. Token gövdeden ya da cookie'den alınıp iptal edilir; cevap her zaman `204` ve cookie silinir (`Max-Age=0`). |
+| Origin kontrolü | Token **cookie'den** okunuyorsa istek `Origin` header'ı izinli frontend adreslerinden biri olmalı, yoksa `403` "İstek kaynağı doğrulanamadı" (CSRF koruması). Tarayıcı `fetch`/axios POST'ta `Origin`'i kendisi ekler; frontend'in bir şey yapmasına gerek yok. Vite proxy'de `Origin` `http://localhost:5173` olarak gider ve izinlidir. |
+| Çok sekme | Aynı refresh token iki sekmeden neredeyse aynı anda gelirse ikincisi `401` + `code: "REFRESH_TOKEN_ROTATED"` alır ve oturum **kapanmaz**: cookie o sırada diğer sekmenin aldığı yeni token'la güncellenmiştir. Frontend bu kodda refresh'i **bir kez** tekrarlamalı. Kodsuz `401` → oturum bitti, çıkış. (Tolerans 30 sn; daha eski bir token'ın tekrar gelmesi çalınma sayılır ve kullanıcının tüm oturumları kapanır.) |
+| İstek ayarı | Vite proxy ile (aynı origin) cookie otomatik gider. Frontend API'yi başka origin'den çağırırsa auth isteklerinde `withCredentials: true` gerekir; backend CORS'ta `Access-Control-Allow-Credentials: true` döner. |
+| Deploy | `SameSite=Strict` için frontend ve API aynı siteden olmalı (ör. `satmis.com` + `api.satmis.com`, ya da aynı origin + reverse proxy). Farklı sitelerde (ör. `*.vercel.app` + `*.onrender.com`) cookie gönderilmez. |
+
+```ts
+// refresh interceptor özeti
+try { await refresh(); }
+catch (error) {
+  if (error.status === 401 && error.code === 'REFRESH_TOKEN_ROTATED') await refresh(); // bir kez
+  else throw error; // 401: çıkış; 429: oturumu silme
+}
+```
 
 ## İstek sınırı (429)
 

@@ -80,6 +80,8 @@ public class SecurityConfig {
         // Browsers hide non-simple response headers from JS unless exposed: create endpoints return Location,
         // rate-limited endpoints return Retry-After
         configuration.setExposedHeaders(List.of(HttpHeaders.LOCATION, HttpHeaders.RETRY_AFTER));
+        // Lets the frontend send the refresh cookie cross-origin; only for the explicit origin list above
+        configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

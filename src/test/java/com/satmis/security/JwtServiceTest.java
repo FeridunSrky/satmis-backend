@@ -5,6 +5,8 @@ import com.satmis.enums.Role;
 import com.satmis.user.User;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -51,7 +53,7 @@ class JwtServiceTest {
     }
 
     private static JwtProperties properties(String secret) {
-        return new JwtProperties(secret, ACCESS_EXPIRATION_MS, REFRESH_EXPIRATION_MS);
+        return new JwtProperties(secret, ACCESS_EXPIRATION_MS, REFRESH_EXPIRATION_MS, Duration.ofSeconds(30));
     }
 
     private static User user(String email) {

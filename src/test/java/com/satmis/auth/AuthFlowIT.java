@@ -26,6 +26,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -185,11 +188,13 @@ class AuthFlowIT {
     }
 
     @Test
-    void refresh_reusedRotatedToken_revokesWholeSession() throws Exception {
+    void refresh_rotatedTokenReplayedAfterGrace_revokesWholeSession() throws Exception {
         String firstRefresh = field(register(uniqueEmail()), "$.refreshToken");
 
         ResultActions rotated = refresh(firstRefresh).andExpect(status().isOk());
         String secondRefresh = field(rotated, "$.refreshToken");
+        jdbcTemplate.update("update refresh_tokens set rotated_at = ? where token_hash = ?",
+                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), RefreshTokenService.hash(firstRefresh));
         assertThat(secondRefresh).isNotEqualTo(firstRefresh);
 
         refresh(firstRefresh).andExpect(status().isUnauthorized());
@@ -258,7 +263,8 @@ class AuthFlowIT {
 
     private String expiredAccessToken(String email) {
         JwtService expiringJwtService = new JwtService(new JwtProperties(
-                jwtProperties.secret(), ALREADY_EXPIRED_MS, jwtProperties.refreshExpirationMs()));
+                jwtProperties.secret(), ALREADY_EXPIRED_MS, jwtProperties.refreshExpirationMs(),
+                jwtProperties.refreshReuseGrace()));
         User user = new User();
         user.setEmail(email);
         user.setRole(Role.USER);

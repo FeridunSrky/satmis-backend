@@ -32,6 +32,9 @@ public class RefreshToken extends BaseEntity {
     @Column(nullable = false)
     private boolean revoked = false;
 
+    // Null unless the token was revoked by rotation (not by logout or reuse detection)
+    private Instant rotatedAt;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id")
     private User user;
