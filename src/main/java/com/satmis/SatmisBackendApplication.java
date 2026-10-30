@@ -1,5 +1,6 @@
 package com.satmis;
 
+import com.satmis.config.RequiredEnvironmentInitializer;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -7,7 +8,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class SatmisBackendApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(SatmisBackendApplication.class, args);
+		SpringApplication application = new SpringApplication(SatmisBackendApplication.class);
+		application.addInitializers(new RequiredEnvironmentInitializer());
+		application.run(args);
 	}
 
 }

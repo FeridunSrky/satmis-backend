@@ -39,7 +39,7 @@ Boot 4 notları:
 - Yorumlar kısa olur ve sadece "neden"i açıklar.
 
 ## Veritabanı
-- Lokal geliştirme makinedeki PostgreSQL'e bağlanır (`application.properties` varsayılanları, port 5432). `docker-compose.yml`'deki Postgres 16 alternatiftir ve 5432 dolu olduğu için host'ta 5433'te açılır.
+- Lokal geliştirme makinedeki PostgreSQL'e bağlanır (`application-dev.properties` varsayılanları, port 5432; şifre `.env`'deki `DB_PASSWORD`'den). `docker-compose.yml`'deki Postgres 16 alternatiftir ve 5432 dolu olduğu için host'ta 5433'te açılır.
 - Şema Flyway ile yönetilir: `src/main/resources/db/migration/V<n>__<aciklama>.sql`. Hibernate `ddl-auto=validate` ile sadece entity–şema uyumunu kontrol eder; uyuşmazlıkta uygulama açılmaz.
 - Entity değişikliği = yeni migration (`V2__add_xxx.sql` …). Uygulanmış bir migration dosyası asla değiştirilmez (Flyway checksum hatası verir); düzeltme de yeni migration'la yapılır.
 - Enum kolonlarında CHECK constraint var: enum'a yeni değer eklemek migration gerektirir.
@@ -49,6 +49,14 @@ Boot 4 notları:
 ## Güvenlik
 - Sır (JWT secret, şifre, token) koda, loga ya da Git'e yazılmaz. Ortam değişkeni kullanılır (`JWT_SECRET`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`; örnek: `.env.example`).
 - Lokalde bu değerler proje kökündeki git-ignored `.env` dosyasından okunur (`spring.config.import=optional:file:.env[.properties]`); STS/terminal/Maven aynı dosyayı görür. Sunucuda `.env` yoktur, gerçek ortam değişkeni/secret manager kullanılır ve ortam değişkeni `.env`'i ezer. Her ortamın kendi JWT secret'ı olur.
+
+## Profiller
+- `application.properties` ortak ve güvenli varsayılanları tutar (SQL logu ve Swagger kapalı, datasource yok). Profil seçilmezse uygulama açılmaz.
+- `dev`: lokal makine. `.env`'de `SPRING_PROFILES_ACTIVE=dev`; SQL logu ve Swagger açık, DB adresi/kullanıcısı varsayılanlı, `DB_PASSWORD` zorunlu.
+- `prod`: sunucu. `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS` zorunlu ve varsayılansız; Swagger kapalı (`SWAGGER_ENABLED=true` ile açılır, açıkken herkese açıktır).
+- `test`: tüm `@SpringBootTest` sınıfları `@ActiveProfiles("test")` taşır; yoksa lokaldeki `.env` testleri `dev`'e sokar. DB'yi Testcontainers verir.
+- `.env` içindeki `SPRING_PROFILES_ACTIVE` anahtarını Spring kendisi okumaz; `application.properties`'teki `spring.profiles.active=${SPRING_PROFILES_ACTIVE:}` eşlemesi bunu sağlar.
+- Eksik ortam değişkeni `RequiredEnvironmentInitializer` ile açılışta adıyla raporlanır (Spring çözülemeyen `${VAR}`'ı düz metin olarak bırakır). Profile yeni zorunlu değişken eklenirse oraya da eklenir.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var.
 - Rol hiçbir zaman istemciden alınmaz.
 - Gönderilmiş ama geçersiz/süresi dolmuş Bearer token açık uçlarda da 401 döner (sessizce anonim sayılmaz, yoksa istemci token yenilemez). Token hiç yoksa istek anonimdir. `/api/auth/**` token'a bakmaz.
@@ -66,4 +74,4 @@ Boot 4 notları:
 - Listede olmayan bağımlılık ekleme. Gerekirse nedenini yazıp ekle.
 - `git commit` ve `git push` yapma, bunu kullanıcı yapar.
 - Var olan dosyaları sormadan silme veya ezme. `application.properties`'i sormadan değiştirme.
-- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- Swagger UI (sadece `dev`): `http://localhost:8080/swagger-ui.html`
