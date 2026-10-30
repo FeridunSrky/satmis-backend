@@ -136,6 +136,21 @@ class ListingIT {
     }
 
     @Test
+    void create_ownerWithUnverifiedEmail_returns422WithEmailNotVerifiedCode() throws Exception {
+        String token = registerUser();
+        long ownerId = userId(token);
+        jdbcTemplate.update("update users set email_verified = false where id = ?", ownerId);
+        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+
+        perform(post(LISTINGS), token, body)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"))
+                .andExpect(jsonPath("$.message").value("İlan vermek için e-posta adresinizi doğrulayın"));
+        assertThat(jdbcTemplate.queryForObject("select count(*) from listings where user_id = ?", Integer.class,
+                ownerId)).isZero();
+    }
+
+    @Test
     void create_ownerWithoutPhone_returns422WithPhoneRequiredCode() throws Exception {
         String token = registerUser();
         long ownerId = userId(token);
@@ -457,12 +472,15 @@ class ListingIT {
         return mockMvc.perform(request);
     }
 
+    // Listing creation needs a verified e-mail, so the helper verifies it directly in the database
     private String registerUser() throws Exception {
-        Map<String, String> body = Map.of("email", "seller-" + UUID.randomUUID() + "@satmis.com",
+        String email = "seller-" + UUID.randomUUID() + "@satmis.com";
+        Map<String, String> body = Map.of("email", email,
                 "password", PASSWORD, "firstName", "Ayşe", "lastName", "Yılmaz", "phone", SELLER_PHONE);
         String response = perform(post("/api/auth/register"), null, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        jdbcTemplate.update("update users set email_verified = true where email = ?", email);
         return JsonPath.read(response, "$.accessToken");
     }
 

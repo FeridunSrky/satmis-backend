@@ -1,16 +1,17 @@
 # satmis.com — Frontend API devir notu
 
-Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarında tek değişiklik telefon numarasıdır (bkz. "Telefon numarası ve satıcı iletişimi").
+Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama ve istek sınırı (bkz. "E-posta doğrulama", "İstek sınırı (429)").
 
 - **Tek doğruluk kaynağı OpenAPI'dir:** backend çalışırken `http://localhost:8080/v3/api-docs` (Swagger UI: `/swagger-ui.html`). TypeScript tiplerini oradan üretmek önerilir (openapi-typescript / orval). Bu nottaki tipler elle yazılmıştır ve kuralları açıklamak içindir.
 - Geliştirmede istekler Vite proxy üzerinden gider (`/api` → `http://localhost:8080`), CORS gerekmez.
-- Backend'i başlatmak için `JWT_SECRET` ortam değişkeni tanımlı olmalı: `.\mvnw.cmd spring-boot:run`.
+- Backend'i başlatmak için proje kökünde `.env` olmalı (`.env.example`'dan kopyala: `SPRING_PROFILES_ACTIVE=dev`, `JWT_SECRET`, `DB_PASSWORD`): `.\mvnw.cmd spring-boot:run`.
+- E-postalar geliştirmede Mailpit'e gider: `docker compose up -d mailpit`, gelen kutusu `http://localhost:8025`.
 
 ## Genel kurallar
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an tek değer: `PHONE_REQUIRED`); diğer hatalarda alan hiç yoktur. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`); diğer hatalarda alan hiç yoktur. |
 | Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel adresi hataları tek anahtar altında döner (`imageUrls`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
@@ -18,6 +19,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 | Id'ler | Sayı (`number`). Path'te sayı olmayan id → 400. |
 | Kimlik | Korumalı uçlarda `Authorization: Bearer <accessToken>`. Token yoksa/geçersizse 401, yetki yoksa 403. Açık uçlarda (`GET /api/listings/**`, `/api/catalog/**`) token göndermek isteğe bağlıdır: token **hiç yoksa** misafir olarak 200; token **gönderilmiş ama süresi dolmuş/geçersizse 401** döner (mevcut refresh interceptor'ı yenileyip isteği tekrarlar). `/api/auth/**` uçları gönderilen token'a hiç bakmaz. |
 | Oluşturma | `201 Created` + `Location` header'ı + oluşan kaydın gövdesi. |
+| İstek sınırı | Bazı uçlar IP başına sınırlıdır; aşılınca `429` (bkz. "İstek sınırı (429)"). |
 
 ## Telefon numarası ve satıcı iletişimi
 
@@ -36,6 +38,37 @@ Alıcılar satıcıya telefonla ulaşır; bu yüzden telefon zorunludur.
 ```ts
 if (error.status === 422 && error.code === 'PHONE_REQUIRED') navigate('/profil');
 ```
+
+## E-posta doğrulama
+
+Kayıttan sonra kullanıcıya doğrulama linki e-postayla gider. Doğrulanmamış kullanıcı giriş yapabilir, gezebilir, favori ekleyebilir; **ilan veremez**.
+
+| Uç / alan | Kural |
+|---|---|
+| `UserResponse.emailVerified` | `boolean`. Kayıt, giriş, `GET /api/users/me` cevaplarında gelir. Yeni kullanıcıda `false`. |
+| E-postadaki link | `<frontend>/verify-email?token=<token>`. Frontend'de **`/verify-email` sayfası** gerekir: `token`'ı okuyup aşağıdaki ucu çağırır. Link 24 saat geçerli. |
+| `POST /api/auth/verify-email` | Gövde `{ "token": "..." }`, token gerekmez. Başarılı → `204`. Geçersiz, kullanılmış veya süresi dolmuş link → `400`, mesaj "Doğrulama linki geçersiz veya süresi dolmuş, yeni bir link isteyin" (üç durum ayırt edilmez). |
+| `POST /api/users/me/email-verification` | Giriş gerekir, gövde yok. Yeni link gönderir → `204`; **önceki linkler geçersiz olur**. Zaten doğrulanmışsa → `409`. 10 dakikada 3 istek sınırı var (`429`). |
+| `POST /api/listings` | Doğrulanmamış kullanıcı → `422`, `code: "EMAIL_NOT_VERIFIED"`, mesaj "İlan vermek için e-posta adresinizi doğrulayın". Bu kontrol telefon kontrolünden önce yapılır. |
+
+Önerilen davranış: `emailVerified === false` iken üstte "E-postanı doğrula · Tekrar gönder" bandı; ilan verme sayfasında `EMAIL_NOT_VERIFIED` gelirse aynı bandı/uyarıyı göster. Doğrulama sonrası `GET /api/users/me` ile kullanıcıyı yenile.
+
+```ts
+if (error.status === 422 && error.code === 'EMAIL_NOT_VERIFIED') showVerifyEmailBanner();
+```
+
+## İstek sınırı (429)
+
+Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Requests`, standart hata gövdesi ve `Retry-After` header'ı (saniye) döner; mesaj kullanıcıya gösterilebilir ("Çok fazla deneme yaptınız, lütfen 60 saniye sonra tekrar deneyin").
+
+| Uç | Sınır |
+|---|---|
+| `POST /api/auth/login` | dakikada 10 |
+| `POST /api/auth/register` | 10 dakikada 5 |
+| `POST /api/auth/refresh` | dakikada 30 |
+| `POST /api/users/me/email-verification` | 10 dakikada 3 |
+
+Refresh interceptor'ı `429`'u oturum düşmesi gibi ele almamalı (kullanıcıyı çıkışa atmamalı); `Retry-After` kadar bekleyip tekrar denenebilir.
 
 ## Sayfalı cevap
 
@@ -220,6 +253,7 @@ interface ListingRequest {
 | 409 | `version` eski: ilan arada başka yerden güncellenmiş | Uyarı göster, detayı yeniden çek, kullanıcı tekrar denesin |
 | 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi | `message`'ı göster |
 | 422 + `code: "PHONE_REQUIRED"` | Profilde telefon yokken ilan verme | Profil sayfasına yönlendir |
+| 422 + `code: "EMAIL_NOT_VERIFIED"` | E-posta doğrulanmamışken ilan verme | "E-postanı doğrula" uyarısı + tekrar gönder butonu |
 
 ### Durum geçişleri (`PATCH /api/listings/{id}/status`, gövde `{ "status": "PASSIVE" }`)
 

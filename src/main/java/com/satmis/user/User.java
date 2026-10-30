@@ -41,4 +41,7 @@ public class User extends AuditableEntity {
 
     @Column(nullable = false)
     private boolean enabled = true;
+
+    @Column(nullable = false)
+    private boolean emailVerified = false;
 }

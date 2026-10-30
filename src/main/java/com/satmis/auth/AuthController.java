@@ -4,6 +4,7 @@ import com.satmis.auth.dto.AuthResponse;
 import com.satmis.auth.dto.LoginRequest;
 import com.satmis.auth.dto.RefreshRequest;
 import com.satmis.auth.dto.RegisterRequest;
+import com.satmis.auth.dto.VerifyEmailRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -24,10 +25,18 @@ public class AuthController {
     private static final URI CURRENT_USER_LOCATION = URI.create("/api/users/me");
 
     private final AuthService authService;
+    private final EmailVerificationService emailVerificationService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.created(CURRENT_USER_LOCATION).body(authService.register(request));
+    }
+
+    // Called by the frontend page the e-mail link opens
+    @PostMapping("/verify-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        emailVerificationService.verify(request.token());
     }
 
     @PostMapping("/login")

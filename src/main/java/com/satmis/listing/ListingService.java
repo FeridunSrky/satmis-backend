@@ -41,7 +41,7 @@ public class ListingService {
     @Transactional
     public ListingDetailResponse create(Long ownerId, ListingRequest request) {
         Listing listing = new Listing();
-        listing.setOwner(findOwnerWithPhone(ownerId));
+        listing.setOwner(findOwnerAllowedToList(ownerId));
         listing.setVehicleDetail(new VehicleDetail());
         applyRequest(listing, request);
         return listingDetailAssembler.assemble(listingRepository.save(listing), ownerId);
@@ -103,9 +103,13 @@ public class ListingService {
     }
 
     // Buyers reach sellers by phone, so a listing without a contact number is useless
-    private User findOwnerWithPhone(Long ownerId) {
+    private User findOwnerAllowedToList(Long ownerId) {
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Kullanıcı bulunamadı"));
+        if (!owner.isEmailVerified()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.EMAIL_NOT_VERIFIED,
+                    "İlan vermek için e-posta adresinizi doğrulayın");
+        }
         if (owner.getPhone() == null || owner.getPhone().isBlank()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.PHONE_REQUIRED,
                     "İlan vermek için profilinize telefon numarası ekleyin");

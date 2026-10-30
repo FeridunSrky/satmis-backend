@@ -5,6 +5,7 @@ import com.satmis.enums.Role;
 public record UserResponse(
         Long id,
         String email,
+        boolean emailVerified,
         String firstName,
         String lastName,
         String phone,

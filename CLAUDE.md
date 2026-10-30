@@ -4,9 +4,9 @@ Sahibinden tarzı araç ilanı platformu. Üniversite bitirme projesi, ama sekt�
 
 ## Yapı
 - Bu repo sadece backend'dir; Maven projesi repo kökündedir (`backend/` alt klasörü yok). Frontend (React + Vite) ayrı tutulacak, henüz yok.
-- Ana paket `com.satmis`, feature-based: `auth`, `user`, `listing`, `vehicle`, `catalog`, `favorite`, `security`, `common`, `config`, `enums`
+- Ana paket `com.satmis`, feature-based: `auth`, `user`, `listing`, `vehicle`, `catalog`, `favorite`, `security`, `mail`, `common`, `config`, `enums`
 - Feature içinde: entity, repository, service, controller, mapper paketin kökünde; istek/cevap record'ları `dto/` alt paketinde.
-- Durum: auth, user, catalog (salt okunur uçlar + seed) listing CRUD + arama ve favoriler tamam. Görseller şimdilik sadece https URL listesi (dosya yükleme yok). İlan silme hard delete.
+- Durum: auth, user, catalog (salt okunur uçlar + seed) listing CRUD + arama, favoriler, e-posta doğrulama ve auth uçlarında rate limiting tamam. Görseller şimdilik sadece https URL listesi (dosya yükleme yok). İlan silme hard delete.
 - Listing yazma işlemleri `ListingService`, okuma işlemleri `ListingQueryService`'te. Liste uçları iki adımlı sorgu kullanır: önce Specification ile sayfanın id'leri, sonra join fetch ile satırlar. Sayfa başına sorgu sayısı sabittir (`ListingIT` bunu ölçer). Yeni liste ucu eklerken bu kalıbı koru.
 - Başka bir feature ilan listesi dönecekse kendi sorgusuyla sadece id sayfasını üretir ve `ListingQueryService.toSummaryPage` ile özetlere çevirir (favoriler böyle).
 - İlan detayı `ListingDetailAssembler` üzerinden kurulur (favori sayısı / favorilerimde mi bilgisi için).
@@ -60,8 +60,10 @@ Boot 4 notları:
 - Eksik ortam değişkeni `RequiredEnvironmentInitializer` ile açılışta adıyla raporlanır (Spring çözülemeyen `${VAR}`'ı düz metin olarak bırakır). Profile yeni zorunlu değişken eklenirse oraya da eklenir.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var. İptal edilen token'lar reuse algılama için süreleri dolana kadar tutulur; `RefreshTokenCleanupJob` süresi dolanları her gün siler (`app.jwt.refresh-token-cleanup-cron`).
 - Rol hiçbir zaman istemciden alınmaz.
-- Rate limiting: `RateLimitFilter` (Bucket4j, bellek içi, IP başına) `POST /api/auth/login|register|refresh` uçlarını sınırlar; aşılınca `429` + `Retry-After` + standart `ErrorResponse`. Limitler `app.rate-limit.*`'ta. Testlerde `application-test.properties` ile kapalı, `RateLimitIT` açıp dener. Yeni bir e-posta/SMS gönderen uç eklenirse oraya da limit eklenir. Loglara IP yazılmaz. Reverse proxy arkasında (deploy) gerçek IP için `server.forward-headers-strategy` ayarlanmalı.
+- Rate limiting: `RateLimitFilter` (Bucket4j, bellek içi, IP başına) `POST /api/auth/login|register|refresh` ve `POST /api/users/me/email-verification` uçlarını sınırlar; aşılınca `429` + `Retry-After` + standart `ErrorResponse`. Limitler `app.rate-limit.*`'ta. Testlerde `application-test.properties` ile kapalı, `RateLimitIT` açıp dener. Yeni bir e-posta/SMS gönderen uç eklenirse oraya da limit eklenir. Loglara IP yazılmaz. Reverse proxy arkasında (deploy) gerçek IP için `server.forward-headers-strategy` ayarlanmalı.
 - Gönderilmiş ama geçersiz/süresi dolmuş Bearer token açık uçlarda da 401 döner (sessizce anonim sayılmaz, yoksa istemci token yenilemez). Token hiç yoksa istek anonimdir. `/api/auth/**` token'a bakmaz.
+- E-posta doğrulama: kayıtta `EmailVerificationService.issueFor` token üretir (DB'de SHA-256, 24 saat, kullanıcı başına sadece en yenisi geçerli). Mail commit'ten sonra `EmailVerificationMailListener` ile gider; mail hatası isteği bozmaz, kullanıcı `POST /api/users/me/email-verification` ile yeniden ister. Doğrulanmamış kullanıcı ilan veremez (`422 EMAIL_NOT_VERIFIED`). Token üretme/hash'leme `SecureTokens`'ta.
+- Mail gönderimi sadece `mail.MailService` üzerinden (adapter; alıcı adresi loglanmaz). Dev'de Mailpit (`docker compose up -d mailpit`, UI `http://localhost:8025`), prod'da SMTP sağlayıcı (`MAIL_*` değişkenleri). SMTP zaman aşımları `application.properties`'te.
 - Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
 - Kullanıcı yalnızca kendi kaydını değiştirebilir (sahiplik kontrolü Service'te yapılır; kullanıcı id'si URL'den değil token'dan alınır).
 - Yetki kuralları `SecurityConfig`'te: `/api/auth/**`, `GET /api/listings/**`, `GET /api/catalog/**` ve Swagger yolları açık; `/api/admin/**` sadece ADMIN; geri kalanı kimlik ister.
@@ -69,6 +71,8 @@ Boot 4 notları:
 ## Test
 - Birim testleri `*Test(s)` → surefire; entegrasyon testleri `*IT` → failsafe (`./mvnw verify`). Docker açık olmalı.
 - Entegrasyon testleri Testcontainers + `@ServiceConnection` ile gerçek PostgreSQL 16 kullanır; JWT secret `TestJwtSecret.random()` ile `@DynamicPropertySource` üzerinden verilir.
+- `application-test.properties` (test kaynaklarında) rate limiting ve mail gönderimini kapatır. İlan oluşturan testler kullanıcıyı JDBC ile doğrulanmış yapar. `EmailVerificationIT` gerçek Mailpit container'ı açıp maili HTTP API'sinden okur.
+- Frontend sözleşmesindeki değişiklikler (yeni uç, hata kodu, alan) `docs/frontend-api.md`'ye de yazılır.
 - Test adı: `method_condition_expectedResult`. Testi geçirmek için test zayıflatılmaz.
 - CI: `.github/workflows/ci.yml`, `main`'e push ve PR'larda `./mvnw clean verify` ve ardından Docker imaj build'i (push etmez). Hata olursa test raporları artifact olarak yüklenir.
 - `mvnw` git'te çalıştırılabilir (`100755`) olmalı; Windows bunu göstermez ama Linux CI/Docker ister.

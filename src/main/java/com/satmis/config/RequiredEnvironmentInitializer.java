@@ -14,7 +14,8 @@ public class RequiredEnvironmentInitializer implements ApplicationContextInitial
 
     private static final Map<String, List<String>> REQUIRED_BY_PROFILE = Map.of(
             "dev", List.of("JWT_SECRET", "DB_PASSWORD"),
-            "prod", List.of("JWT_SECRET", "DB_URL", "DB_USERNAME", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS"));
+            "prod", List.of("JWT_SECRET", "DB_URL", "DB_USERNAME", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS",
+                    "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL"));
 
     @Override
     public void initialize(ConfigurableApplicationContext context) {

@@ -23,7 +23,8 @@ class RequiredEnvironmentInitializerTest {
         assertThatThrownBy(() -> initializer.initialize(contextWith(environment)))
                 .isInstanceOf(MissingRequiredPropertiesException.class)
                 .satisfies(exception -> assertThat(((MissingRequiredPropertiesException) exception).getMissingRequiredProperties())
-                        .containsExactlyInAnyOrder("DB_URL", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS"));
+                        .containsExactlyInAnyOrder("DB_URL", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS",
+                                "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL"));
     }
 
     @Test
@@ -33,7 +34,12 @@ class RequiredEnvironmentInitializerTest {
                 .withProperty("DB_URL", "jdbc:postgresql://db:5432/satmis")
                 .withProperty("DB_USERNAME", "satmis")
                 .withProperty("DB_PASSWORD", "password")
-                .withProperty("CORS_ALLOWED_ORIGINS", "https://satmis.com");
+                .withProperty("CORS_ALLOWED_ORIGINS", "https://satmis.com")
+                .withProperty("MAIL_HOST", "smtp.example.com")
+                .withProperty("MAIL_USERNAME", "satmis")
+                .withProperty("MAIL_PASSWORD", "password")
+                .withProperty("MAIL_FROM", "no-reply@satmis.com")
+                .withProperty("FRONTEND_BASE_URL", "https://satmis.com");
         environment.setActiveProfiles("prod");
 
         assertThatCode(() -> initializer.initialize(contextWith(environment))).doesNotThrowAnyException();

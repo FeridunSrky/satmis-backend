@@ -162,12 +162,15 @@ class FavoriteIT {
         return jdbcTemplate.queryForObject(sql, Long.class);
     }
 
+    // Listing creation needs a verified e-mail, so the helper verifies it directly in the database
     private String registerUser() throws Exception {
-        Map<String, String> body = Map.of("email", "fan-" + UUID.randomUUID() + "@satmis.com",
+        String email = "fan-" + UUID.randomUUID() + "@satmis.com";
+        Map<String, String> body = Map.of("email", email,
                 "password", "Sifre1234", "firstName", "Can", "lastName", "Demir", "phone", "+905339876543");
         String response = perform(post("/api/auth/register"), null, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        jdbcTemplate.update("update users set email_verified = true where email = ?", email);
         return JsonPath.read(response, "$.accessToken");
     }
 

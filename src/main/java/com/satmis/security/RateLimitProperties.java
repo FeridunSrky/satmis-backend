@@ -16,7 +16,8 @@ public record RateLimitProperties(
         @Positive int maxTrackedClients,
         @NotNull @Valid Rule login,
         @NotNull @Valid Rule register,
-        @NotNull @Valid Rule refresh
+        @NotNull @Valid Rule refresh,
+        @NotNull @Valid Rule resendVerification
 ) {
 
     // At most `capacity` requests per client within `period`, refilled gradually

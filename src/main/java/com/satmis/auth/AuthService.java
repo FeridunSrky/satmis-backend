@@ -36,6 +36,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final UserMapper userMapper;
+    private final EmailVerificationService emailVerificationService;
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
@@ -47,7 +48,9 @@ public class AuthService {
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(request.password()));
         user.setRole(Role.USER);
-        return buildResponse(userRepository.save(user));
+        User saved = userRepository.save(user);
+        emailVerificationService.issueFor(saved);
+        return buildResponse(saved);
     }
 
     @Transactional

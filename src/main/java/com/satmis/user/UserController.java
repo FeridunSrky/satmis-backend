@@ -1,5 +1,6 @@
 package com.satmis.user;
 
+import com.satmis.auth.EmailVerificationService;
 import com.satmis.common.PageResponse;
 import com.satmis.listing.ListingQueryService;
 import com.satmis.listing.dto.ListingPageRequest;
@@ -14,6 +15,7 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +30,7 @@ public class UserController {
 
     private final UserService userService;
     private final ListingQueryService listingQueryService;
+    private final EmailVerificationService emailVerificationService;
 
     @GetMapping("/me")
     public UserResponse getCurrentUser(@AuthenticationPrincipal CustomUserDetails principal) {
@@ -45,6 +48,13 @@ public class UserController {
     public UserResponse updateCurrentUser(@AuthenticationPrincipal CustomUserDetails principal,
                                           @Valid @RequestBody UpdateProfileRequest request) {
         return userService.update(principal.getId(), request);
+    }
+
+    // Sends a fresh verification link; earlier links stop working
+    @PostMapping("/me/email-verification")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resendEmailVerification(@AuthenticationPrincipal CustomUserDetails principal) {
+        emailVerificationService.resend(principal.getId());
     }
 
     @PutMapping("/me/password")

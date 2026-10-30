@@ -18,11 +18,13 @@ public interface UserMapper {
     @Mapping(target = "password", ignore = true)
     @Mapping(target = "role", ignore = true)
     @Mapping(target = "enabled", ignore = true)
+    @Mapping(target = "emailVerified", ignore = true)
     User toEntity(RegisterRequest request);
 
     @Mapping(target = "email", ignore = true)
     @Mapping(target = "password", ignore = true)
     @Mapping(target = "role", ignore = true)
     @Mapping(target = "enabled", ignore = true)
+    @Mapping(target = "emailVerified", ignore = true)
     void updateProfile(UpdateProfileRequest request, @MappingTarget User user);
 }

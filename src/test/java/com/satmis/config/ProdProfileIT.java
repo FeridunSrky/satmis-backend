@@ -32,6 +32,11 @@ class ProdProfileIT {
     static void prodProperties(DynamicPropertyRegistry registry) {
         registry.add("app.jwt.secret", TestJwtSecret::random);
         registry.add("CORS_ALLOWED_ORIGINS", () -> "https://satmis.example");
+        registry.add("MAIL_HOST", () -> "smtp.satmis.example");
+        registry.add("MAIL_USERNAME", () -> "satmis");
+        registry.add("MAIL_PASSWORD", () -> "unused-in-test");
+        registry.add("MAIL_FROM", () -> "no-reply@satmis.example");
+        registry.add("FRONTEND_BASE_URL", () -> "https://satmis.example");
     }
 
     @Autowired
