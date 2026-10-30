@@ -1,6 +1,5 @@
 package com.satmis.auth;
 
-import com.jayway.jsonpath.JsonPath;
 import com.satmis.TestJwtSecret;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
@@ -25,9 +24,17 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
@@ -44,6 +51,7 @@ class RefreshTokenCookieIT {
     private static final String COOKIE_NAME = "satmis_refresh";
     private static final String FRONTEND_ORIGIN = "http://localhost:5173";
     private static final int SEVEN_DAYS_IN_SECONDS = 7 * 24 * 60 * 60;
+    private static final int CONCURRENT_REFRESHES = 8;
 
     @Container
     @ServiceConnection
@@ -61,7 +69,7 @@ class RefreshTokenCookieIT {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void login_validCredentials_setsHttpOnlyRefreshCookieMatchingBody() throws Exception {
+    void login_validCredentials_setsHttpOnlyRefreshCookieAndKeepsTokenOutOfBody() throws Exception {
         String email = uniqueEmail();
         register(email);
 
@@ -73,10 +81,11 @@ class RefreshTokenCookieIT {
                 .andExpect(cookie().sameSite(COOKIE_NAME, "Strict"))
                 .andExpect(cookie().path(COOKIE_NAME, "/api/auth"))
                 .andExpect(cookie().maxAge(COOKIE_NAME, SEVEN_DAYS_IN_SECONDS))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
                 .andReturn();
 
-        String bodyToken = JsonPath.read(result.getResponse().getContentAsString(), "$.refreshToken");
-        assertThat(result.getResponse().getCookie(COOKIE_NAME).getValue()).isEqualTo(bodyToken);
+        assertThat(result.getResponse().getCookie(COOKIE_NAME).getValue()).isNotBlank();
     }
 
     @Test
@@ -113,10 +122,24 @@ class RefreshTokenCookieIT {
     }
 
     @Test
-    void refresh_cookieFromForeignOrigin_returns403() throws Exception {
+    void refresh_cookieFromForeignOrigin_returns403WithStandardErrorBody() throws Exception {
         String token = refreshCookieValue(register(uniqueEmail()));
 
-        refreshWithCookie(token, "https://evil.example").andExpect(status().isForbidden());
+        refreshWithCookie(token, "https://evil.example")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.message").value("İstek kaynağı doğrulanamadı"))
+                .andExpect(jsonPath("$.path").value("/api/auth/refresh"));
+
+        refreshWithCookie(token, FRONTEND_ORIGIN).andExpect(status().isOk());
+    }
+
+    @Test
+    void anyEndpoint_foreignOrigin_returns403WithStandardErrorBody() throws Exception {
+        mockMvc.perform(get("/api/catalog/brands").header(HttpHeaders.ORIGIN, "https://evil.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("İstek kaynağı doğrulanamadı"))
+                .andExpect(jsonPath("$.path").value("/api/catalog/brands"));
     }
 
     @Test
@@ -127,13 +150,14 @@ class RefreshTokenCookieIT {
     }
 
     @Test
-    void refresh_tokenInBodyWithoutOrigin_stillWorksForApiClients() throws Exception {
+    void refresh_tokenOnlyInBody_isIgnoredAndReturns401() throws Exception {
         String token = refreshCookieValue(register(uniqueEmail()));
 
-        mockMvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(post("/api/auth/refresh").header(HttpHeaders.ORIGIN, FRONTEND_ORIGIN)
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\": \"%s\"}".formatted(token)))
-                .andExpect(status().isOk())
-                .andExpect(cookie().exists(COOKIE_NAME));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Refresh token bulunamadı"));
     }
 
     @Test
@@ -147,6 +171,36 @@ class RefreshTokenCookieIT {
                 .andExpect(jsonPath("$.code").value("REFRESH_TOKEN_ROTATED"));
 
         refreshWithCookie(secondToken, FRONTEND_ORIGIN).andExpect(status().isOk());
+    }
+
+    @Test
+    void refresh_sameCookieConcurrently_onlyOneRequestRotates() throws Exception {
+        String token = refreshCookieValue(register(uniqueEmail()));
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REFRESHES);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<MvcResult>> futures = new ArrayList<>();
+            for (int i = 0; i < CONCURRENT_REFRESHES; i++) {
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    return refreshWithCookie(token, FRONTEND_ORIGIN).andReturn();
+                }));
+            }
+            start.countDown();
+            List<MvcResult> results = new ArrayList<>();
+            for (Future<MvcResult> future : futures) {
+                results.add(future.get(30, TimeUnit.SECONDS));
+            }
+
+            assertThat(results).filteredOn(result -> result.getResponse().getStatus() == 200).hasSize(1);
+            assertThat(results).filteredOn(result -> result.getResponse().getStatus() != 200)
+                    .allSatisfy(result -> {
+                        assertThat(result.getResponse().getStatus()).isEqualTo(401);
+                        assertThat(result.getResponse().getContentAsString()).contains("REFRESH_TOKEN_ROTATED");
+                    });
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

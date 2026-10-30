@@ -71,16 +71,16 @@ Başarılı sıfırlamadan sonra: kullanıcının **tüm oturumları kapanır** 
 
 ## Refresh token cookie'si
 
-Refresh token artık backend tarafından **httpOnly cookie** olarak da yazılır. JavaScript bu cookie'yi okuyamaz; XSS olsa bile refresh token çalınamaz. Geçiş dönemi: gövdedeki `refreshToken` alanı ve gövdeyle refresh/logout **hâlâ çalışır ama deprecated**; frontend cookie'ye geçince kaldırılacak.
+Refresh token **sadece httpOnly cookie** ile taşınır; cevap gövdesinde yoktur ve gövdeyle gönderilen token dikkate alınmaz. JavaScript bu cookie'yi okuyamaz; XSS olsa bile refresh token çalınamaz.
 
 | Konu | Kural |
 |---|---|
 | Cookie | `satmis_refresh`; `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Max-Age` 7 gün; prod'da `Secure`. Login, register ve refresh cevaplarında `Set-Cookie` ile gelir. Sadece `/api/auth/**` isteklerine eklenir. |
 | Access token | Değişmedi: gövdede `accessToken` gelir, `Authorization: Bearer` ile gönderilir. **Sadece bellekte** tutulmalı (localStorage/sessionStorage değil). Sayfa yenilenince kaybolur; uygulama açılışında `POST /api/auth/refresh` ile yenisi alınır. |
-| `POST /api/auth/refresh` | Gövde artık **isteğe bağlı**. Gövdede `refreshToken` varsa o kullanılır, yoksa cookie. Başarılı → `200` + yeni `accessToken` + yeni cookie (rotasyon). Ne gövde ne cookie → `401` "Refresh token bulunamadı" (eskiden boş gövde `400` dönüyordu). |
-| `POST /api/auth/logout` | Gövde isteğe bağlı. Token gövdeden ya da cookie'den alınıp iptal edilir; cevap her zaman `204` ve cookie silinir (`Max-Age=0`). |
-| Origin kontrolü | Token **cookie'den** okunuyorsa istek `Origin` header'ı izinli frontend adreslerinden biri olmalı, yoksa `403` "İstek kaynağı doğrulanamadı" (CSRF koruması). Tarayıcı `fetch`/axios POST'ta `Origin`'i kendisi ekler; frontend'in bir şey yapmasına gerek yok. Vite proxy'de `Origin` `http://localhost:5173` olarak gider ve izinlidir. |
-| Çok sekme | Aynı refresh token iki sekmeden neredeyse aynı anda gelirse ikincisi `401` + `code: "REFRESH_TOKEN_ROTATED"` alır ve oturum **kapanmaz**: cookie o sırada diğer sekmenin aldığı yeni token'la güncellenmiştir. Frontend bu kodda refresh'i **bir kez** tekrarlamalı. Kodsuz `401` → oturum bitti, çıkış. (Tolerans 30 sn; daha eski bir token'ın tekrar gelmesi çalınma sayılır ve kullanıcının tüm oturumları kapanır.) |
+| `POST /api/auth/refresh` | Gövdesiz. Token cookie'den okunur. Başarılı → `200` + yeni `accessToken` + yeni cookie (rotasyon). Cookie yoksa → `401` "Refresh token bulunamadı" (gövdede token gönderilse bile). |
+| `POST /api/auth/logout` | Gövdesiz. Cookie'deki token iptal edilir; cevap her zaman `204` ve cookie silinir (`Max-Age=0`). |
+| Origin kontrolü | Cookie'li istekte `Origin` header'ı izinli frontend adreslerinden biri olmalı, yoksa `403` "İstek kaynağı doğrulanamadı" (CSRF koruması). İzinli olmayan bir origin'den gelen **her** istek CORS katmanında aynı `403` ve standart hata gövdesiyle reddedilir. Tarayıcı `fetch`/axios POST'ta `Origin`'i kendisi ekler. Vite proxy'de `Origin` `http://localhost:5173` olarak gider ve izinlidir. |
+| Çok sekme | Aynı refresh token iki sekmeden aynı anda ya da birkaç saniye arayla gelirse sadece biri yeniler; diğeri `401` + `code: "REFRESH_TOKEN_ROTATED"` alır ve oturum **kapanmaz**: cookie o sırada diğer sekmenin aldığı yeni token'la güncellenmiştir. Frontend bu kodda refresh'i **bir kez** tekrarlamalı. Kodsuz `401` → oturum bitti, çıkış. (Tolerans 30 sn; daha eski bir token'ın tekrar gelmesi çalınma sayılır ve kullanıcının tüm oturumları kapanır.) |
 | İstek ayarı | Vite proxy ile (aynı origin) cookie otomatik gider. Frontend API'yi başka origin'den çağırırsa auth isteklerinde `withCredentials: true` gerekir; backend CORS'ta `Access-Control-Allow-Credentials: true` döner. |
 | Deploy | `SameSite=Strict` için frontend ve API aynı siteden olmalı (ör. `satmis.com` + `api.satmis.com`, ya da aynı origin + reverse proxy). Farklı sitelerde (ör. `*.vercel.app` + `*.onrender.com`) cookie gönderilmez. |
 

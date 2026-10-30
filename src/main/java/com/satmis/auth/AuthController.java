@@ -3,7 +3,6 @@ package com.satmis.auth;
 import com.satmis.auth.dto.AuthResponse;
 import com.satmis.auth.dto.ForgotPasswordRequest;
 import com.satmis.auth.dto.LoginRequest;
-import com.satmis.auth.dto.RefreshRequest;
 import com.satmis.auth.dto.RegisterRequest;
 import com.satmis.auth.dto.ResetPasswordRequest;
 import com.satmis.auth.dto.VerifyEmailRequest;
@@ -64,26 +63,24 @@ public class AuthController {
         return withRefreshCookie(ResponseEntity.ok(), authService.login(request));
     }
 
-    // Token from the body or the httpOnly cookie; the body is optional for cookie clients
+    // The refresh token comes only from the httpOnly cookie
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@RequestBody(required = false) RefreshRequest request,
-                                                HttpServletRequest httpRequest) {
-        String rawToken = refreshTokenCookies.find(httpRequest, request)
+    public ResponseEntity<AuthResponse> refresh(HttpServletRequest httpRequest) {
+        String rawToken = refreshTokenCookies.find(httpRequest)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Refresh token bulunamadı"));
         return withRefreshCookie(ResponseEntity.ok(), authService.refresh(rawToken));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@RequestBody(required = false) RefreshRequest request,
-                                       HttpServletRequest httpRequest) {
-        refreshTokenCookies.find(httpRequest, request).ifPresent(authService::logout);
+    public ResponseEntity<Void> logout(HttpServletRequest httpRequest) {
+        refreshTokenCookies.find(httpRequest).ifPresent(authService::logout);
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, refreshTokenCookies.clear().toString())
                 .build();
     }
 
-    private ResponseEntity<AuthResponse> withRefreshCookie(ResponseEntity.BodyBuilder builder, AuthResponse response) {
-        return builder.header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(response.refreshToken()).toString())
-                .body(response);
+    private ResponseEntity<AuthResponse> withRefreshCookie(ResponseEntity.BodyBuilder builder, AuthSession session) {
+        return builder.header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(session.refreshToken()).toString())
+                .body(session.response());
     }
 }

@@ -1,6 +1,7 @@
 package com.satmis.auth;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.RefreshCookies;
 import com.satmis.TestJwtSecret;
 import com.satmis.enums.Role;
 import com.satmis.security.CustomUserDetails;
@@ -38,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -80,7 +82,8 @@ class AuthFlowIT {
         register(email)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
-                .andExpect(jsonPath("$.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(cookie().exists(RefreshCookies.NAME))
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.user.email").value(email))
                 .andExpect(jsonPath("$.user.role").value("USER"));
@@ -154,16 +157,14 @@ class AuthFlowIT {
     @Test
     void authEndpoints_staleTokenHeader_stillWork() throws Exception {
         String email = uniqueEmail();
-        String refreshToken = field(register(email), "$.refreshToken");
+        String refreshToken = RefreshCookies.from(register(email));
         String staleHeader = bearer(expiredAccessToken(email));
 
         mockMvc.perform(post("/api/auth/login").header(HttpHeaders.AUTHORIZATION, staleHeader)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("email", email, "password", PASSWORD))))
                 .andExpect(status().isOk());
-        mockMvc.perform(post("/api/auth/refresh").header(HttpHeaders.AUTHORIZATION, staleHeader)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of("refreshToken", refreshToken))))
+        mockMvc.perform(RefreshCookies.refresh(refreshToken).header(HttpHeaders.AUTHORIZATION, staleHeader))
                 .andExpect(status().isOk());
     }
 
@@ -189,10 +190,10 @@ class AuthFlowIT {
 
     @Test
     void refresh_rotatedTokenReplayedAfterGrace_revokesWholeSession() throws Exception {
-        String firstRefresh = field(register(uniqueEmail()), "$.refreshToken");
+        String firstRefresh = RefreshCookies.from(register(uniqueEmail()));
 
         ResultActions rotated = refresh(firstRefresh).andExpect(status().isOk());
-        String secondRefresh = field(rotated, "$.refreshToken");
+        String secondRefresh = RefreshCookies.from(rotated);
         jdbcTemplate.update("update refresh_tokens set rotated_at = ? where token_hash = ?",
                 Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), RefreshTokenService.hash(firstRefresh));
         assertThat(secondRefresh).isNotEqualTo(firstRefresh);
@@ -203,9 +204,9 @@ class AuthFlowIT {
 
     @Test
     void logout_thenRefresh_returns401() throws Exception {
-        String refreshToken = field(register(uniqueEmail()), "$.refreshToken");
+        String refreshToken = RefreshCookies.from(register(uniqueEmail()));
 
-        postJson("/api/auth/logout", Map.of("refreshToken", refreshToken)).andExpect(status().isNoContent());
+        mockMvc.perform(RefreshCookies.logout(refreshToken)).andExpect(status().isNoContent());
 
         refresh(refreshToken).andExpect(status().isUnauthorized());
     }
@@ -215,7 +216,7 @@ class AuthFlowIT {
         String email = uniqueEmail();
         ResultActions registered = register(email);
         String accessToken = field(registered, "$.accessToken");
-        String refreshToken = field(registered, "$.refreshToken");
+        String refreshToken = RefreshCookies.from(registered);
 
         mockMvc.perform(put("/api/users/me/password")
                         .header(HttpHeaders.AUTHORIZATION, bearer(accessToken))
@@ -239,7 +240,7 @@ class AuthFlowIT {
     @Test
     void refreshToken_storedInDatabase_isHashedNotRaw() throws Exception {
         String email = uniqueEmail();
-        String refreshToken = field(register(email), "$.refreshToken");
+        String refreshToken = RefreshCookies.from(register(email));
 
         List<String> storedHashes = jdbcTemplate.queryForList(
                 "select rt.token_hash from refresh_tokens rt join users u on u.id = rt.user_id where u.email = ?",
@@ -276,7 +277,7 @@ class AuthFlowIT {
     }
 
     private ResultActions refresh(String refreshToken) throws Exception {
-        return postJson("/api/auth/refresh", Map.of("refreshToken", refreshToken));
+        return mockMvc.perform(RefreshCookies.refresh(refreshToken));
     }
 
     private ResultActions postJson(String url, Map<String, String> body) throws Exception {

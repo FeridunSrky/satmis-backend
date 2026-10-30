@@ -1,6 +1,5 @@
 package com.satmis.auth;
 
-import com.satmis.auth.dto.RefreshRequest;
 import com.satmis.common.ApiException;
 import com.satmis.security.CorsProperties;
 import com.satmis.security.JwtProperties;
@@ -39,12 +38,8 @@ public class RefreshTokenCookies {
         return cookie("", Duration.ZERO);
     }
 
-    // A token in the body wins so API clients without cookies keep working.
-    // Browsers attach the cookie to forged cross-site requests too, so a cookie only counts with a trusted Origin.
-    public Optional<String> find(HttpServletRequest request, RefreshRequest body) {
-        if (body != null && StringUtils.hasText(body.refreshToken())) {
-            return Optional.of(body.refreshToken());
-        }
+    // Browsers attach the cookie to forged cross-site requests too, so it only counts with a trusted Origin
+    public Optional<String> find(HttpServletRequest request) {
         Cookie cookie = WebUtils.getCookie(request, properties.name());
         if (cookie == null || !StringUtils.hasText(cookie.getValue())) {
             return Optional.empty();

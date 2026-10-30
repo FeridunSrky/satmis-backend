@@ -2,6 +2,7 @@ package com.satmis.auth;
 
 import com.jayway.jsonpath.JsonPath;
 import com.satmis.MailpitInbox;
+import com.satmis.RefreshCookies;
 import com.satmis.TestJwtSecret;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -176,10 +177,9 @@ class PasswordResetIT {
         String body = """
                 {"email": "%s", "password": "%s", "firstName": "Ali", "lastName": "Veli",
                  "phone": "+905321234567"}""".formatted(email, OLD_PASSWORD);
-        String response = mockMvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(response, "$.refreshToken");
+        return RefreshCookies.from(mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()));
     }
 
     private ResultActions forgotPassword(String email) throws Exception {
@@ -196,7 +196,7 @@ class PasswordResetIT {
     }
 
     private ResultActions refresh(String refreshToken) throws Exception {
-        return postJson("/api/auth/refresh", "{\"refreshToken\": \"%s\"}".formatted(refreshToken));
+        return mockMvc.perform(RefreshCookies.refresh(refreshToken));
     }
 
     private ResultActions postJson(String url, String body) throws Exception {

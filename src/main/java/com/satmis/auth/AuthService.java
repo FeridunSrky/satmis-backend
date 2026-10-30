@@ -42,7 +42,7 @@ public class AuthService {
     private final JwtProperties jwtProperties;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthSession register(RegisterRequest request) {
         String email = EmailNormalizer.normalize(request.email());
         if (userRepository.existsByEmail(email)) {
             throw new ApiException(HttpStatus.CONFLICT, "Bu e-posta adresi zaten kayıtlı");
@@ -57,7 +57,7 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthSession login(LoginRequest request) {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(EmailNormalizer.normalize(request.email()), request.password()));
         CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
@@ -66,16 +66,14 @@ public class AuthService {
 
     // The mass revocation on token reuse must be committed even though the request fails
     @Transactional(noRollbackFor = ApiException.class)
-    public AuthResponse refresh(String rawToken) {
+    public AuthSession refresh(String rawToken) {
         RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(RefreshTokenService.hash(rawToken))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Geçersiz refresh token"));
         User user = refreshToken.getUser();
 
         if (refreshToken.isRevoked()) {
             if (rotatedWithinGrace(refreshToken)) {
-                // Another tab rotated it a moment ago; the shared cookie already holds the new token
-                throw new ApiException(HttpStatus.UNAUTHORIZED, ErrorCode.REFRESH_TOKEN_ROTATED,
-                        "Oturum başka bir sekmede yenilendi, isteği tekrarlayın");
+                throw rotatedElsewhere();
             }
             // A rotated token being replayed later means it may have been stolen
             refreshTokenRepository.revokeAllByUserId(user.getId());
@@ -88,9 +86,17 @@ public class AuthService {
             throw new ApiException(HttpStatus.FORBIDDEN, "Hesap devre dışı");
         }
 
-        refreshToken.setRevoked(true);
-        refreshToken.setRotatedAt(Instant.now());
+        if (refreshTokenRepository.rotate(refreshToken.getId(), Instant.now()) == 0) {
+            // A concurrent request with the same token won the rotation
+            throw rotatedElsewhere();
+        }
         return buildResponse(user);
+    }
+
+    // Another tab rotated it a moment ago; the shared cookie already holds the new token
+    private static ApiException rotatedElsewhere() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, ErrorCode.REFRESH_TOKEN_ROTATED,
+                "Oturum başka bir sekmede yenilendi, isteği tekrarlayın");
     }
 
     private boolean rotatedWithinGrace(RefreshToken refreshToken) {
@@ -104,10 +110,10 @@ public class AuthService {
                 .ifPresent(refreshToken -> refreshToken.setRevoked(true));
     }
 
-    private AuthResponse buildResponse(User user) {
+    private AuthSession buildResponse(User user) {
         String accessToken = jwtService.generateAccessToken(new CustomUserDetails(user));
-        String refreshToken = refreshTokenService.create(user);
-        return new AuthResponse(accessToken, refreshToken, TOKEN_TYPE,
+        AuthResponse response = new AuthResponse(accessToken, TOKEN_TYPE,
                 jwtService.getAccessExpirationMs() / MILLIS_PER_SECOND, userMapper.toResponse(user));
+        return new AuthSession(response, refreshTokenService.create(user));
     }
 }

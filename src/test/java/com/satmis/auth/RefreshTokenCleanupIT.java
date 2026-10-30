@@ -1,6 +1,6 @@
 package com.satmis.auth;
 
-import com.jayway.jsonpath.JsonPath;
+import com.satmis.RefreshCookies;
 import com.satmis.TestJwtSecret;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,19 +73,15 @@ class RefreshTokenCleanupIT {
         assertThat(jdbcTemplate.queryForObject(COUNT_TOKENS_OF_USER, Long.class, userId)).isEqualTo(2);
         assertThat(jdbcTemplate.queryForObject("select count(*) from refresh_tokens where token_hash = ?",
                 Long.class, revokedButLiveHash)).isEqualTo(1);
-        mockMvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
-                        .content(jsonMapper.writeValueAsString(Map.of("refreshToken", liveRefreshToken))))
-                .andExpect(status().isOk());
+        mockMvc.perform(RefreshCookies.refresh(liveRefreshToken)).andExpect(status().isOk());
     }
 
     private String registerAndGetRefreshToken(String email) throws Exception {
         String body = jsonMapper.writeValueAsString(Map.of("email", email, "password", "Sifre1234",
                 "firstName", "Ali", "lastName", "Veli", "phone", "+905321234567"));
-        String response = mockMvc.perform(post("/api/auth/register")
+        return RefreshCookies.from(mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(response, "$.refreshToken");
+                .andExpect(status().isCreated()));
     }
 
     private String insertToken(Long userId, Instant expiryDate, boolean revoked) {
