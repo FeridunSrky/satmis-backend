@@ -39,6 +39,13 @@ public class RefreshTokenService {
         return rawToken;
     }
 
+    // Revoked tokens are kept until they expire so reuse detection can still recognise them;
+    // once expired they are rejected anyway and can go.
+    @Transactional
+    public int deleteExpired() {
+        return refreshTokenRepository.deleteAllExpiredBefore(Instant.now());
+    }
+
     public static String hash(String rawToken) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

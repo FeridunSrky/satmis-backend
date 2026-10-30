@@ -58,7 +58,7 @@ Boot 4 notları:
 - `.env` içindeki `SPRING_PROFILES_ACTIVE` anahtarını Spring kendisi okumaz; `application.properties`'teki `spring.profiles.active=${SPRING_PROFILES_ACTIVE:}` eşlemesi bunu sağlar.
 - Docker imajı (`Dockerfile`, çok aşamalı, root olmayan `spring` kullanıcısı) varsayılan olarak `prod` profilinde açılır; prod değişkenleri `docker run -e ...` ile verilir. İmaj build'inde testler çalışmaz (Testcontainers build içinde DB açamaz), testler CI'da koşar. `.env` `.dockerignore` ile imaja girmez.
 - Eksik ortam değişkeni `RequiredEnvironmentInitializer` ile açılışta adıyla raporlanır (Spring çözülemeyen `${VAR}`'ı düz metin olarak bırakır). Profile yeni zorunlu değişken eklenirse oraya da eklenir.
-- Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var.
+- Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var. İptal edilen token'lar reuse algılama için süreleri dolana kadar tutulur; `RefreshTokenCleanupJob` süresi dolanları her gün siler (`app.jwt.refresh-token-cleanup-cron`).
 - Rol hiçbir zaman istemciden alınmaz.
 - Gönderilmiş ama geçersiz/süresi dolmuş Bearer token açık uçlarda da 401 döner (sessizce anonim sayılmaz, yoksa istemci token yenilemez). Token hiç yoksa istek anonimdir. `/api/auth/**` token'a bakmaz.
 - Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
