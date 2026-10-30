@@ -56,6 +56,7 @@ Boot 4 notları:
 - `prod`: sunucu. `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS` zorunlu ve varsayılansız; Swagger kapalı (`SWAGGER_ENABLED=true` ile açılır, açıkken herkese açıktır).
 - `test`: tüm `@SpringBootTest` sınıfları `@ActiveProfiles("test")` taşır; yoksa lokaldeki `.env` testleri `dev`'e sokar. DB'yi Testcontainers verir.
 - `.env` içindeki `SPRING_PROFILES_ACTIVE` anahtarını Spring kendisi okumaz; `application.properties`'teki `spring.profiles.active=${SPRING_PROFILES_ACTIVE:}` eşlemesi bunu sağlar.
+- Docker imajı (`Dockerfile`, çok aşamalı, root olmayan `spring` kullanıcısı) varsayılan olarak `prod` profilinde açılır; prod değişkenleri `docker run -e ...` ile verilir. İmaj build'inde testler çalışmaz (Testcontainers build içinde DB açamaz), testler CI'da koşar. `.env` `.dockerignore` ile imaja girmez.
 - Eksik ortam değişkeni `RequiredEnvironmentInitializer` ile açılışta adıyla raporlanır (Spring çözülemeyen `${VAR}`'ı düz metin olarak bırakır). Profile yeni zorunlu değişken eklenirse oraya da eklenir.
 - Şifre BCrypt ile hash'lenir. Refresh token DB'de SHA-256 hash'i olarak tutulur; rotasyon ve reuse algılama var.
 - Rol hiçbir zaman istemciden alınmaz.

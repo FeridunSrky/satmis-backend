@@ -1,0 +1,20 @@
+# Secrets must never end up in an image layer.
+.env
+.env.*
+
+# Build output and local tooling
+target/
+.git/
+.idea/
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+*.log
+
+# Not needed to build the app
+docs/
+*.md
+*.png
+docker-compose.yml
