@@ -3,14 +3,15 @@ package com.satmis.auth;
 import com.satmis.mail.MailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-// After commit: no mail for a registration that rolled back, and a slow mail server never holds a DB transaction.
+// After commit: no mail for a registration that rolled back. Async: a slow mail server never delays the response.
 @Slf4j
 @Component
 @RequiredArgsConstructor
-class EmailVerificationMailListener {
+public class EmailVerificationMailListener {
 
     private static final String SUBJECT = "satmis.com e-posta adresinizi doğrulayın";
     private static final String BODY = """
@@ -26,8 +27,9 @@ class EmailVerificationMailListener {
     private final MailService mailService;
     private final EmailVerificationProperties properties;
 
+    @Async
     @TransactionalEventListener
-    void onVerificationRequested(EmailVerificationRequestedEvent event) {
+    public void onVerificationRequested(EmailVerificationRequestedEvent event) {
         String link = properties.linkBaseUrl() + "?token=" + event.rawToken();
         String body = BODY.formatted(event.firstName(), link, properties.tokenTtl().toHours());
         if (mailService.send(event.email(), SUBJECT, body)) {

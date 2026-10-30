@@ -1,9 +1,11 @@
 package com.satmis.auth;
 
 import com.satmis.auth.dto.AuthResponse;
+import com.satmis.auth.dto.ForgotPasswordRequest;
 import com.satmis.auth.dto.LoginRequest;
 import com.satmis.auth.dto.RefreshRequest;
 import com.satmis.auth.dto.RegisterRequest;
+import com.satmis.auth.dto.ResetPasswordRequest;
 import com.satmis.auth.dto.VerifyEmailRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -37,6 +40,19 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
         emailVerificationService.verify(request.token());
+    }
+
+    // Always 204, whether or not the e-mail is registered
+    @PostMapping("/forgot-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        passwordResetService.requestReset(request.email());
+    }
+
+    @PostMapping("/reset-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordResetService.reset(request.token(), request.newPassword());
     }
 
     @PostMapping("/login")

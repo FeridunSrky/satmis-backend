@@ -1,6 +1,7 @@
 package com.satmis.auth;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.MailpitInbox;
 import com.satmis.TestJwtSecret;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,19 +22,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -48,26 +40,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 class EmailVerificationIT {
 
-    private static final int SMTP_PORT = 1025;
-    private static final int MAILPIT_API_PORT = 8025;
-    private static final Pattern TOKEN_IN_LINK = Pattern.compile(
-            Pattern.quote("http://localhost:5173/verify-email?token=") + "([A-Za-z0-9_-]+)");
-    private static final Duration MAIL_WAIT = Duration.ofSeconds(10);
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final String LINK_BASE_URL = "http://localhost:5173/verify-email";
 
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse("postgres:16"));
 
     @Container
-    static GenericContainer<?> mailpit = new GenericContainer<>(DockerImageName.parse("axllent/mailpit:v1.32.0"))
-            .withExposedPorts(SMTP_PORT, MAILPIT_API_PORT);
+    static GenericContainer<?> mailpit = MailpitInbox.newContainer();
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("app.jwt.secret", TestJwtSecret::random);
         registry.add("spring.mail.host", mailpit::getHost);
-        registry.add("spring.mail.port", () -> mailpit.getMappedPort(SMTP_PORT));
+        registry.add("spring.mail.port", () -> mailpit.getMappedPort(MailpitInbox.SMTP_PORT));
     }
 
     @Autowired
@@ -182,36 +168,8 @@ class EmailVerificationIT {
         return mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken));
     }
 
-    // Mailpit stores mails asynchronously after SMTP accepts them, so poll briefly
     private static List<String> tokensMailedTo(String email, int expectedMails) throws Exception {
-        Instant deadline = Instant.now().plus(MAIL_WAIT);
-        while (true) {
-            List<String> ids = JsonPath.read(mailpitGet("/api/v1/search?query="
-                    + URLEncoder.encode("to:\"" + email + "\"", StandardCharsets.UTF_8)), "$.messages[*].ID");
-            if (ids.size() >= expectedMails) {
-                return ids.stream().map(EmailVerificationIT::tokenInMessage).toList();
-            }
-            if (Instant.now().isAfter(deadline)) {
-                throw new AssertionError("Expected " + expectedMails + " mails to " + email + ", found " + ids.size());
-            }
-            Thread.sleep(100);
-        }
-    }
-
-    private static String tokenInMessage(String messageId) {
-        try {
-            String text = JsonPath.read(mailpitGet("/api/v1/message/" + messageId), "$.Text");
-            Matcher matcher = TOKEN_IN_LINK.matcher(text);
-            assertThat(matcher.find()).as("verification link in mail body").isTrue();
-            return matcher.group(1);
-        } catch (Exception ex) {
-            throw new IllegalStateException("Could not read mail " + messageId + " from Mailpit", ex);
-        }
-    }
-
-    private static String mailpitGet(String path) throws Exception {
-        URI uri = URI.create("http://" + mailpit.getHost() + ":" + mailpit.getMappedPort(MAILPIT_API_PORT) + path);
-        return HTTP.send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
+        return MailpitInbox.tokensMailedTo(mailpit, email, LINK_BASE_URL, expectedMails);
     }
 
     private static String uniqueEmail() {

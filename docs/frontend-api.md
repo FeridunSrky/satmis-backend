@@ -1,6 +1,6 @@
 # satmis.com — Frontend API devir notu
 
-Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama ve istek sınırı (bkz. "E-posta doğrulama", "İstek sınırı (429)").
+Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama, şifre sıfırlama ve istek sınırı (bkz. "E-posta doğrulama", "Şifre sıfırlama", "İstek sınırı (429)").
 
 - **Tek doğruluk kaynağı OpenAPI'dir:** backend çalışırken `http://localhost:8080/v3/api-docs` (Swagger UI: `/swagger-ui.html`). TypeScript tiplerini oradan üretmek önerilir (openapi-typescript / orval). Bu nottaki tipler elle yazılmıştır ve kuralları açıklamak içindir.
 - Geliştirmede istekler Vite proxy üzerinden gider (`/api` → `http://localhost:8080`), CORS gerekmez.
@@ -57,6 +57,18 @@ Kayıttan sonra kullanıcıya doğrulama linki e-postayla gider. Doğrulanmamı�
 if (error.status === 422 && error.code === 'EMAIL_NOT_VERIFIED') showVerifyEmailBanner();
 ```
 
+## Şifre sıfırlama
+
+"Şifremi unuttum" akışı. İki uç da token gerektirmez.
+
+| Uç | Kural |
+|---|---|
+| `POST /api/auth/forgot-password` | Gövde `{ "email": "..." }`. **Her zaman `204`**: e-posta kayıtlı olsun olmasın aynı cevap (hangi adreslerin kayıtlı olduğu dışarı sızmasın diye). Kayıtlıysa sıfırlama linki gider. Geçersiz e-posta biçimi → `400`. Ekranda "E-posta adresin kayıtlıysa sıfırlama linki gönderdik" gibi tarafsız bir mesaj göster. |
+| E-postadaki link | `<frontend>/reset-password?token=<token>`. Frontend'de **`/reset-password` sayfası** gerekir: yeni şifre formu, `token`'ı URL'den alır. Link **1 saat** geçerli, tek kullanımlık; yeni istek eski linkleri geçersiz kılar. |
+| `POST /api/auth/reset-password` | Gövde `{ "token": "...", "newPassword": "..." }`. Başarılı → `204`. Şifre 8–64 karakter değilse → `400`, `errors.newPassword` (link geçerliliğini korur, kullanıcı tekrar deneyebilir). Geçersiz/kullanılmış/süresi dolmuş link → `400`, mesaj "Şifre sıfırlama linki geçersiz veya süresi dolmuş, yeni bir link isteyin" (`errors` yok). |
+
+Başarılı sıfırlamadan sonra: kullanıcının **tüm oturumları kapanır** (refresh token'lar iptal; elindeki access token en fazla 15 dk daha geçerli kalır). E-posta da doğrulanmış sayılır (`emailVerified: true`). Frontend kullanıcıyı giriş sayfasına yönlendirip "Şifren değişti, yeni şifrenle giriş yap" demeli; tarayıcıda o kullanıcıya ait token varsa silmeli.
+
 ## İstek sınırı (429)
 
 Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Requests`, standart hata gövdesi ve `Retry-After` header'ı (saniye) döner; mesaj kullanıcıya gösterilebilir ("Çok fazla deneme yaptınız, lütfen 60 saniye sonra tekrar deneyin").
@@ -67,6 +79,8 @@ Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Reques
 | `POST /api/auth/register` | 10 dakikada 5 |
 | `POST /api/auth/refresh` | dakikada 30 |
 | `POST /api/users/me/email-verification` | 10 dakikada 3 |
+| `POST /api/auth/forgot-password` | 15 dakikada 5 |
+| `POST /api/auth/reset-password` | 15 dakikada 10 |
 
 Refresh interceptor'ı `429`'u oturum düşmesi gibi ele almamalı (kullanıcıyı çıkışa atmamalı); `Retry-After` kadar bekleyip tekrar denenebilir.
 

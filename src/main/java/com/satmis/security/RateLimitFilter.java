@@ -36,7 +36,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 "/api/auth/login", properties.login(),
                 "/api/auth/register", properties.register(),
                 "/api/auth/refresh", properties.refresh(),
-                "/api/users/me/email-verification", properties.resendVerification());
+                "/api/users/me/email-verification", properties.resendVerification(),
+                "/api/auth/forgot-password", properties.forgotPassword(),
+                "/api/auth/reset-password", properties.resetPassword());
         this.buckets = new ConcurrentLruCache<>(properties.maxTrackedClients(),
                 key -> newBucket(rulesByPath.get(key.path())));
         this.errorWriter = errorWriter;
