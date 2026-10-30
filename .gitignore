@@ -41,3 +41,7 @@ build/
 node_modules/
 *.log
 .DS_Store
+
+### Local notes ###
+satmis-baslangic-prompt_1.md
+satmis_er_diyagrami_guncel.png
