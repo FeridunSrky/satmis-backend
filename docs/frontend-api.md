@@ -459,6 +459,20 @@ interface AdminUser {
 - `reason`: zorunlu, en fazla 500 karakter, sahibine aynen gösterilir. Eksikse `400` (`errors.reason`).
 - Onay sadece `PENDING_APPROVAL` ilanda, red `PENDING_APPROVAL` veya `ACTIVE` ilanda yapılabilir; aksi `422`. İlan yoksa `404`.
 
+### Katalog ekleme
+
+| Metot | URL | Gövde | Cevap |
+|---|---|---|---|
+| POST | `/api/admin/catalog/brands` | `{ "name": string }` | 201 `{ id, name }` |
+| POST | `/api/admin/catalog/brands/{brandId}/models` | `{ "name": string }` | 201 `{ id, name }` |
+| POST | `/api/admin/catalog/models/{modelId}/series` | `{ "name": string }` | 201 `{ id, name }` |
+
+- Sadece **ekleme** vardır; yeniden adlandırma ve silme yoktur.
+- Bu uçlar `Location` header'ı döndürmez (katalogda tek kayıt ucu yok). Ekledikten sonra ilgili listeyi (`GET /api/catalog/...`) yeniden çekin.
+- `name`: zorunlu, en fazla 50 karakter (`400`, `errors.name`). Baştaki/sondaki boşluk kırpılır, içteki çoklu boşluk teke iner; cevaptaki `name` kaydedilen haldir.
+- Aynı ebeveyn altında aynı isim (büyük/küçük harf farkı gözetilmeden, Türkçe kurallarla: `bmw` = `BMW`, `şahin` = `ŞAHİN`) `409` döner. Aynı seri adı farklı modellerde olabilir.
+- Ebeveyn marka/model yoksa `404`.
+
 ## Enum değerleri ve önerilen Türkçe etiketler
 
 | Enum | Değer → etiket |
