@@ -29,6 +29,13 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
             where l.id in :ids""")
     List<Listing> findSummariesByIdIn(@Param("ids") Collection<Long> ids);
 
+    @Query("""
+            select new com.satmis.listing.OwnerListingCount(l.owner.id, count(l))
+            from Listing l
+            where l.owner.id in :ownerIds
+            group by l.owner.id""")
+    List<OwnerListingCount> countByOwnerIdIn(@Param("ownerIds") Collection<Long> ownerIds);
+
     // Bulk update bypasses @Version so a view never conflicts with the owner's edit
     @Modifying
     @Query("update Listing l set l.viewCount = l.viewCount + 1 where l.id = :id")

@@ -2,7 +2,6 @@ package com.satmis.listing;
 
 import com.satmis.common.ApiException;
 import com.satmis.common.PageResponse;
-import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingPageRequest;
 import com.satmis.listing.dto.ListingSearchCriteria;
@@ -14,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,7 +37,7 @@ public class ListingQueryService {
         Listing listing = listingRepository.findDetailById(listingId).orElseThrow(ListingQueryService::notFound);
         boolean viewerIsOwner = listing.getOwner().getId().equals(viewerId);
         // 404 rather than 403 so others cannot tell a hidden listing exists
-        if (listing.getStatus() != ListingStatus.ACTIVE && !viewerIsOwner) {
+        if (!listing.isPubliclyVisible() && !viewerIsOwner) {
             throw notFound();
         }
         if (!viewerIsOwner) {
@@ -48,13 +48,22 @@ public class ListingQueryService {
 
     public PageResponse<ListingSummaryResponse> search(ListingSearchCriteria criteria, ListingPageRequest pageRequest) {
         Page<Long> idPage = listingRepository.findIds(
-                ListingSpecifications.activeMatching(criteria), pageRequest.toPageable());
+                ListingSpecifications.publiclyVisibleMatching(criteria), pageRequest.toPageable());
         return toSummaryPage(idPage);
     }
 
     public PageResponse<ListingSummaryResponse> getOwnListings(Long ownerId, ListingPageRequest pageRequest) {
         Page<Long> idPage = listingRepository.findIds(ListingSpecifications.ownedBy(ownerId), pageRequest.toPageable());
         return toSummaryPage(idPage);
+    }
+
+    // Every status counts; owners without listings are absent from the map
+    public Map<Long, Long> countListingsByOwner(Collection<Long> ownerIds) {
+        if (ownerIds.isEmpty()) {
+            return Map.of();
+        }
+        return listingRepository.countByOwnerIdIn(ownerIds).stream()
+                .collect(Collectors.toMap(OwnerListingCount::ownerId, OwnerListingCount::listingCount));
     }
 
     // Fixed number of queries per page: ids + count, listings with their catalog data, cover images.
