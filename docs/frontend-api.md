@@ -386,6 +386,7 @@ Diğer her geçiş (PENDING_APPROVAL dahil) 422 döner. Yeni ilanlar şu an doğ
 ### Görünürlük
 
 - Arama (`GET /api/listings`) sadece ACTIVE ilanları döner.
+- Sahibi admin tarafından engellenmiş ilanlar her yerde (arama, detay, favoriler) ACTIVE olmayan ilan gibi gizlenir. Engel kalkınca ilanlar olduğu gibi geri gelir.
 - Detay: ACTIVE olmayan ilanı sadece sahibi görür; diğerlerine 404 (403 değil, ilanın varlığı sızmasın diye). Sahibinin kendi PASSIVE/SOLD ilanını açabilmesi için detay isteğinde token gönderilmeli; mevcut `http` istemcisi bunu yapıyor.
 - "İlanlarım" (`/api/users/me/listings`) her durumu döner; `status` alanına göre rozet gösterilebilir.
 
@@ -393,14 +394,45 @@ Diğer her geçiş (PENDING_APPROVAL dahil) 422 döner. Yeni ilanlar şu an doğ
 
 | Metot | URL | Kimlik | Cevap |
 |---|---|---|---|
-| PUT | `/api/listings/{id}/favorite` | giriş | 204 — tekrar çağrılabilir; ilan yoksa veya ACTIVE değilse 404 |
+| PUT | `/api/listings/{id}/favorite` | giriş | 204 — tekrar çağrılabilir; ilan yoksa, ACTIVE değilse veya sahibi engelliyse 404 |
 | DELETE | `/api/listings/{id}/favorite` | giriş | 204 — tekrar çağrılabilir; favoride değilse de 204 |
 | GET | `/api/users/me/favorites` | giriş | `PageResponse<ListingSummary>` — son eklenen başta; sadece `page`/`size` (sıralama parametresi yok) |
 
 - İki uç da idempotent olduğu için favori butonunda optimistic update güvenle yapılabilir; hata olursa geri alınır.
-- Favorilerim listesi sadece şu an ACTIVE olan ilanları gösterir. Pasife alınan ilanın favorisi silinmez; ilan tekrar yayına girince listede geri görünür.
+- Favorilerim listesi sadece şu an görünür ilanları gösterir (ACTIVE ve sahibi engelli değil). Pasife alınan ya da sahibi engellenen ilanın favorisi silinmez; ilan tekrar görünür olunca listede geri gelir.
 - İlan silinirse favorisi de silinir.
 - Favori değişince ilgili detayın (`favoriteCount`, `favoritedByMe`) ve favoriler listesinin cache'i geçersiz kılınmalı.
+
+## Yönetim (admin)
+
+Bu uçlar sadece `role: "ADMIN"` olan kullanıcılara açıktır: token yoksa `401`, kullanıcı admin değilse `403`. Frontend admin menüsünü `GET /api/users/me` cevabındaki `role` alanına göre gösterir (bu sadece görünüm kararıdır, yetkiyi backend kontrol eder). Rol istemciden hiçbir zaman alınmaz; ilk admin sunucu yapılandırmasıyla (`APP_ADMIN_EMAILS`) atanır.
+
+### Kullanıcılar
+
+| Metot | URL | Cevap |
+|---|---|---|
+| GET | `/api/admin/users?q=&page=&size=` | `PageResponse<AdminUser>`, en yeni kayıt başta |
+| POST | `/api/admin/users/{id}/block` | 204. Tekrar çağrılabilir |
+| POST | `/api/admin/users/{id}/unblock` | 204. Tekrar çağrılabilir |
+
+- `q`: e-posta adresinin herhangi bir parçası, büyük/küçük harf duyarsız. En fazla 100 karakter (fazlası `400`, `errors.q`). Boşsa tüm kullanıcılar listelenir.
+- Engelleme hataları: kendini ya da başka bir admini engellemeye çalışınca `422` "Yönetici hesapları engellenemez". Kullanıcı yoksa `404`.
+- Engellenen kullanıcının oturumları hemen kapanır: access token'ı bir sonraki istekte `401` alır, refresh `401` döner, girişte `403` "Hesap devre dışı" görür. İlanları gizlenir ama silinmez (bkz. "Görünürlük").
+
+```ts
+interface AdminUser {
+  id: number;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  role: 'USER' | 'ADMIN';
+  enabled: boolean;        // false = engelli
+  emailVerified: boolean;
+  createdAt: string;       // ISO-8601 UTC
+  listingCount: number;    // her durumdaki ilanları
+}
+```
 
 ## Enum değerleri ve önerilen Türkçe etiketler
 

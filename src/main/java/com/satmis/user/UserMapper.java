@@ -2,6 +2,7 @@ package com.satmis.user;
 
 import com.satmis.auth.dto.RegisterRequest;
 import com.satmis.user.dto.UpdateProfileRequest;
+import com.satmis.user.dto.AdminUserResponse;
 import com.satmis.user.dto.UserResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -12,6 +13,8 @@ import org.mapstruct.ReportingPolicy;
 public interface UserMapper {
 
     UserResponse toResponse(User user);
+
+    AdminUserResponse toAdminResponse(User user, long listingCount);
 
     // Email is normalized and password hashed in the service; role is never taken from the client
     @Mapping(target = "email", ignore = true)

@@ -4,6 +4,7 @@ import com.satmis.common.ApiException;
 import com.satmis.common.PageResponse;
 import com.satmis.common.PagingRequest;
 import com.satmis.enums.ListingStatus;
+import com.satmis.listing.Listing;
 import com.satmis.listing.ListingQueryService;
 import com.satmis.listing.ListingRepository;
 import com.satmis.listing.dto.ListingSummaryResponse;
@@ -24,7 +25,7 @@ public class FavoriteService {
     @Transactional
     public void add(Long userId, Long listingId) {
         boolean visible = listingRepository.findById(listingId)
-                .map(listing -> listing.getStatus() == ListingStatus.ACTIVE)
+                .map(Listing::isPubliclyVisible)
                 .orElse(false);
         if (!visible) {
             throw new ApiException(HttpStatus.NOT_FOUND, "İlan bulunamadı");
@@ -37,7 +38,7 @@ public class FavoriteService {
         favoriteRepository.deleteByUserIdAndListingId(userId, listingId);
     }
 
-    // Favorites of listings that went passive stay stored and reappear if the listing is reactivated
+    // Favorites of hidden listings (passive, owner blocked) stay stored and reappear once visible again
     @Transactional(readOnly = true)
     public PageResponse<ListingSummaryResponse> getFavorites(Long userId, PagingRequest pagingRequest) {
         return listingQueryService.toSummaryPage(favoriteRepository.findListingIdsByUserIdAndListingStatus(

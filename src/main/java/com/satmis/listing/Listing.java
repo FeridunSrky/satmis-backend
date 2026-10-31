@@ -87,6 +87,11 @@ public class Listing extends AuditableEntity {
     @BatchSize(size = 20)
     private List<ListingImage> images = new ArrayList<>();
 
+    // What anonymous visitors and other users may see: active, and the owner is not blocked
+    public boolean isPubliclyVisible() {
+        return status == ListingStatus.ACTIVE && owner.isEnabled();
+    }
+
     public void setVehicleDetail(VehicleDetail vehicleDetail) {
         this.vehicleDetail = vehicleDetail;
         if (vehicleDetail != null) {

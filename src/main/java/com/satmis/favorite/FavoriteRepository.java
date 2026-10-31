@@ -28,11 +28,11 @@ public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
 
     @Query(value = """
             select f.listing.id from Favorite f
-            where f.user.id = :userId and f.listing.status = :status
+            where f.user.id = :userId and f.listing.status = :status and f.listing.owner.enabled = true
             order by f.createdAt desc, f.id desc""",
             countQuery = """
             select count(f) from Favorite f
-            where f.user.id = :userId and f.listing.status = :status""")
+            where f.user.id = :userId and f.listing.status = :status and f.listing.owner.enabled = true""")
     Page<Long> findListingIdsByUserIdAndListingStatus(@Param("userId") Long userId,
                                                       @Param("status") ListingStatus status,
                                                       Pageable pageable);

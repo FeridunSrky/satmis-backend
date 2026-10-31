@@ -24,10 +24,12 @@ final class ListingSpecifications {
     private ListingSpecifications() {
     }
 
-    static Specification<Listing> activeMatching(ListingSearchCriteria criteria) {
+    // Same rule as Listing.isPubliclyVisible: active and the owner is not blocked
+    static Specification<Listing> publiclyVisibleMatching(ListingSearchCriteria criteria) {
         return (root, query, builder) -> {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(builder.equal(root.get("status"), ListingStatus.ACTIVE));
+            predicates.add(builder.isTrue(root.get("owner").get("enabled")));
             addListingPredicates(predicates, criteria, root, builder);
             addVehiclePredicates(predicates, criteria, root.join("vehicleDetail"), builder);
             return builder.and(predicates.toArray(Predicate[]::new));
