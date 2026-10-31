@@ -32,7 +32,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.rate-limit.login.capacity=3",
         "app.rate-limit.login.period=1h",
         "app.rate-limit.image-upload.capacity=2",
-        "app.rate-limit.image-upload.period=1h"
+        "app.rate-limit.image-upload.period=1h",
+        "app.rate-limit.listing-report.capacity=2",
+        "app.rate-limit.listing-report.period=1h"
 })
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -41,6 +43,7 @@ class RateLimitIT {
 
     private static final int LOGIN_CAPACITY = 3;
     private static final int IMAGE_UPLOAD_CAPACITY = 2;
+    private static final int LISTING_REPORT_CAPACITY = 2;
     private static final AtomicInteger NEXT_CLIENT = new AtomicInteger(1);
     private static final String WRONG_LOGIN = """
             {"email": "nobody@satmis.com", "password": "YanlisSifre1"}""";
@@ -107,6 +110,27 @@ class RateLimitIT {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
                 .andExpect(jsonPath("$.path").value("/api/listing-images"));
+    }
+
+    // The listing id is part of the path, yet one client shares a single bucket across all listings
+    @Test
+    void listingReport_overLimitAcrossListings_returns429() throws Exception {
+        String clientIp = uniqueIp();
+        for (int listingId = 1; listingId <= LISTING_REPORT_CAPACITY; listingId++) {
+            reportListing(clientIp, listingId).andExpect(status().isUnauthorized());
+        }
+
+        reportListing(clientIp, 99)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
+                .andExpect(jsonPath("$.path").value("/api/listings/99/reports"));
+        reportListing(uniqueIp(), 99).andExpect(status().isUnauthorized());
+    }
+
+    private ResultActions reportListing(String clientIp, long listingId) throws Exception {
+        return mockMvc.perform(post("/api/listings/{id}/reports", listingId).with(fromIp(clientIp))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"reason": "FRAUD_SUSPECTED"}"""));
     }
 
     private ResultActions requestImageUpload(String clientIp) throws Exception {

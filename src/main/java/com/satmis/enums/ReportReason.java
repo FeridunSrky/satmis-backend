@@ -1,0 +1,5 @@
+package com.satmis.enums;
+
+public enum ReportReason {
+    FAKE_OR_MISLEADING, FRAUD_SUSPECTED, WRONG_INFO, INAPPROPRIATE_CONTENT, ALREADY_SOLD, OTHER
+}
