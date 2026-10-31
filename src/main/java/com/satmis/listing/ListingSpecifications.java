@@ -4,10 +4,12 @@ import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingSearchCriteria;
 import com.satmis.vehicle.VehicleDetail;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
@@ -39,6 +41,7 @@ final class ListingSpecifications {
     private static void addListingPredicates(List<Predicate> predicates, ListingSearchCriteria criteria,
                                              Root<Listing> root, CriteriaBuilder builder) {
         Path<BigDecimal> price = root.get("price");
+        KeywordQuery.toTsQuery(criteria.q()).ifPresent(tsQuery -> predicates.add(keywordMatches(root, builder, tsQuery)));
         addIfPresent(predicates, criteria.districtId(),
                 () -> builder.equal(root.get("district").get(ID), criteria.districtId()));
         addIfPresent(predicates, criteria.cityId(),
@@ -49,6 +52,13 @@ final class ListingSpecifications {
                 () -> builder.greaterThanOrEqualTo(price, criteria.minPrice()));
         addIfPresent(predicates, criteria.maxPrice(),
                 () -> builder.lessThanOrEqualTo(price, criteria.maxPrice()));
+    }
+
+    // value() binds the query as a parameter; literal() would inline it and give every search its own SQL text
+    private static Predicate keywordMatches(Root<Listing> root, CriteriaBuilder builder, String tsQuery) {
+        Expression<Boolean> matches = builder.function(ListingSearchFunctions.TEXT_MATCHES, Boolean.class,
+                root.get("searchText"), ((HibernateCriteriaBuilder) builder).value(tsQuery));
+        return builder.isTrue(matches);
     }
 
     private static void addVehiclePredicates(List<Predicate> predicates, ListingSearchCriteria criteria,

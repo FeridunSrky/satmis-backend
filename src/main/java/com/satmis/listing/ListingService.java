@@ -16,7 +16,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -88,7 +91,17 @@ public class ListingService {
 
         VehicleDetail vehicleDetail = listing.getVehicleDetail();
         listingMapper.updateVehicleDetail(request.vehicle(), vehicleDetail);
-        vehicleDetail.setSeries(findSeries(request.vehicle().seriesId()));
+        VehicleSeries series = findSeries(request.vehicle().seriesId());
+        vehicleDetail.setSeries(series);
+        listing.setSearchText(searchTextOf(listing, series));
+    }
+
+    // Same layout as the V8 backfill: brand, model, series, title, description
+    private static String searchTextOf(Listing listing, VehicleSeries series) {
+        return Stream.of(series.getModel().getBrand().getName(), series.getModel().getName(), series.getName(),
+                        listing.getTitle(), listing.getDescription())
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(" "));
     }
 
     private Listing findOwnedListing(Long listingId, Long userId) {

@@ -50,6 +50,10 @@ public class Listing extends AuditableEntity {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    // Denormalized for keyword search; kept in sync by ListingService, never sent to clients
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String searchText;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal price;
 

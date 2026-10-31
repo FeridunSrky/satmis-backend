@@ -229,6 +229,7 @@ Hepsi opsiyonel query parametresidir; verilmeyen filtre uygulanmaz.
 
 | Parametre | Tip | Not |
 |---|---|---|
+| `q` | string | Anahtar kelime, en fazla 100 karakter (fazlası `400`, `errors.q`). Ayrıntılar aşağıda |
 | `brandId`, `modelId`, `seriesId` | number | Katalogdan gelen id'ler |
 | `cityId`, `districtId` | number | |
 | `minPrice`, `maxPrice` | number | Ham tutar karşılaştırır; anlamlı olması için `currency` ile birlikte gönderin |
@@ -247,6 +248,15 @@ type ListingSort =
   | 'YEAR_DESC' | 'YEAR_ASC'
   | 'KM_ASC' | 'KM_DESC';
 ```
+
+**Anahtar kelime (`q`) nasıl eşleşir:**
+
+- Marka, model, seri adı, başlık ve açıklamada aranır.
+- Büyük/küçük harf ve Türkçe karakter farkı yoktur: `ışıklı`, `IŞIKLI`, `isikli` aynıdır.
+- Kelime başı eşleşir: `volks` → "Volkswagen", `cor` → "Corolla". Kelimenin ortası eşleşmez.
+- Birden fazla kelime verilirse **hepsi** geçmelidir (`golf dizel`). İlk 5 farklı kelime dikkate alınır.
+- Harf ve rakam dışındaki karakterler ayraç sayılır (`1.6` → `1` ve `6`); özel karakter hata üretmez. Aranabilir bir şey kalmazsa (`q=!!!`) filtre uygulanmaz.
+- Diğer filtreler ve `sort` ile birlikte kullanılır. Sonuçlar alaka düzeyine göre değil, `sort`'a göre sıralanır.
 
 Frontend'deki `?kasa=sedan` gibi Türkçe URL slug'ları backend'e enum değeri olarak çevrilip gönderilmeli (`bodyType=SEDAN`); `src/shared/config/bodyTypes.ts` bu eşlemeyi zaten içeriyor.
 

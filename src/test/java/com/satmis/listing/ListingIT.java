@@ -13,6 +13,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -26,8 +27,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -441,12 +446,104 @@ class ListingIT {
         Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
 
-        mockMvc.perform(get(LISTINGS + "?seriesId=" + seriesId))
+        mockMvc.perform(get(LISTINGS + "?seriesId=" + seriesId + "&q=astra"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(5)));
 
         // Lower bound guards against a silently disabled statistics collector making this test vacuous
         assertThat(statistics.getPrepareStatementCount()).isBetween(2L, (long) MAX_QUERIES_PER_SEARCH_PAGE);
+    }
+
+    @Test
+    void search_keyword_ignoresCaseAndTurkishCharacters() throws Exception {
+        String owner = registerUser();
+        String marker = uniqueKeyword();
+        Map<String, Object> body = listingBody(series("Toyota", "Corolla", "1.6"), district("İzmir", "Karşıyaka"));
+        body.put("title", "IŞIKLI " + marker + " ÇAĞDAŞ donanım");
+        long listingId = createListing(owner, body);
+
+        assertThat(keywordSearchIds("ışıklı " + marker)).containsExactly(listingId);
+        assertThat(keywordSearchIds("isikli " + marker.toUpperCase(Locale.ROOT))).containsExactly(listingId);
+        assertThat(keywordSearchIds("cagdas " + marker)).containsExactly(listingId);
+    }
+
+    @Test
+    void search_keyword_matchesCatalogNamesByPrefixAndRequiresEveryTerm() throws Exception {
+        String owner = registerUser();
+        String marker = uniqueKeyword();
+        long seriesId = series("Volkswagen", "Golf", "1.5 eTSI");
+        Map<String, Object> body = withVehicle(listingBody(seriesId, district("Konya", "Selçuklu")), 2022, 30_000);
+        body.put("description", "Sahibinden " + marker + " değişensiz");
+        long listingId = createListing(owner, body);
+
+        assertThat(keywordSearchIds("golf " + marker)).containsExactly(listingId);
+        assertThat(keywordSearchIds("volks deği " + marker)).containsExactly(listingId);
+        assertThat(keywordSearchIds("passat " + marker)).isEmpty();
+        assertThat(searchIds("q=" + marker + "&seriesId=" + seriesId + "&maxKm=50000")).containsExactly(listingId);
+        assertThat(searchIds("q=" + marker + "&maxKm=10000")).isEmpty();
+    }
+
+    @Test
+    void search_keywordWithQuerySyntax_isTreatedAsPlainText() throws Exception {
+        String owner = registerUser();
+        String marker = uniqueKeyword();
+        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        body.put("title", "Temiz " + marker);
+        long listingId = createListing(owner, body);
+
+        assertThat(keywordSearchIds(marker + ":* | !(temiz) & '")).containsExactly(listingId);
+        // Nothing searchable left: the keyword filter is skipped instead of failing
+        mockMvc.perform(get(LISTINGS).param("q", "&|!():*'\\"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void search_keywordTooLong_returns400() throws Exception {
+        mockMvc.perform(get(LISTINGS).param("q", "a".repeat(101)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.q").isNotEmpty());
+    }
+
+    @Test
+    void update_changedTitle_isFoundByNewKeyword() throws Exception {
+        String owner = registerUser();
+        String oldMarker = uniqueKeyword();
+        String newMarker = uniqueKeyword();
+        long seriesId = series("Toyota", "Corolla", "1.6");
+        long districtId = district("İzmir", "Karşıyaka");
+        Map<String, Object> body = listingBody(seriesId, districtId);
+        body.put("title", "İlan " + oldMarker);
+        long listingId = createListing(owner, body);
+
+        body.put("title", "İlan " + newMarker);
+        body.put("version", currentVersion(listingId));
+        body.put("imageIds", imageIdsOfListing(listingId));
+        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
+
+        assertThat(keywordSearchIds(newMarker)).containsExactly(listingId);
+        assertThat(keywordSearchIds(oldMarker)).isEmpty();
+    }
+
+    @Test
+    void search_keywordPredicate_usesGinIndex() {
+        String predicate = ListingSearchFunctions.TEXT_MATCHES_SQL
+                .replace("?1", "search_text").replace("?2", "'golf:*'");
+        // The tiny test table would always be scanned sequentially; disabling that shows whether the index fits
+        List<String> plan = jdbcTemplate.execute((ConnectionCallback<List<String>>) connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("set enable_seqscan = off");
+                List<String> lines = new ArrayList<>();
+                try (ResultSet rows = statement.executeQuery(
+                        "explain select id from listings where " + predicate + " = true")) {
+                    while (rows.next()) {
+                        lines.add(rows.getString(1));
+                    }
+                }
+                statement.execute("reset enable_seqscan");
+                return lines;
+            }
+        });
+        assertThat(String.join("\n", plan)).contains("idx_listings_search");
     }
 
     @Test
@@ -550,6 +647,18 @@ class ListingIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.<List<Number>>read(response, "$.content[*].id").stream().map(Number::longValue).toList();
+    }
+
+    private List<Long> keywordSearchIds(String keyword) throws Exception {
+        String response = mockMvc.perform(get(LISTINGS).param("q", keyword))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.<List<Number>>read(response, "$.content[*].id").stream().map(Number::longValue).toList();
+    }
+
+    // Letters only, so the same keyword never matches listings created by other tests
+    private static String uniqueKeyword() {
+        return "kw" + UUID.randomUUID().toString().replaceAll("[^a-f]", "");
     }
 
     private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
