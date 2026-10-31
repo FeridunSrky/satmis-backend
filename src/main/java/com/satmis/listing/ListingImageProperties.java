@@ -15,6 +15,8 @@ public record ListingImageProperties(
         // Uploaded images not saved in a listing yet; caps how much storage one account can fill
         @Positive int maxUnattachedPerUser,
         // How long a presigned upload URL stays usable if it leaks
-        @NotNull Duration uploadUrlTtl
+        @NotNull Duration uploadUrlTtl,
+        // Uploads not saved in a listing within this time are removed by the cleanup job
+        @NotNull Duration abandonedAfter
 ) {
 }

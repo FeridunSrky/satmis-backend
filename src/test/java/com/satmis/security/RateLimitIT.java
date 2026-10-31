@@ -30,7 +30,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "app.rate-limit.enabled=true",
         "app.rate-limit.login.capacity=3",
-        "app.rate-limit.login.period=1h"
+        "app.rate-limit.login.period=1h",
+        "app.rate-limit.image-upload.capacity=2",
+        "app.rate-limit.image-upload.period=1h"
 })
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -38,6 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class RateLimitIT {
 
     private static final int LOGIN_CAPACITY = 3;
+    private static final int IMAGE_UPLOAD_CAPACITY = 2;
     private static final AtomicInteger NEXT_CLIENT = new AtomicInteger(1);
     private static final String WRONG_LOGIN = """
             {"email": "nobody@satmis.com", "password": "YanlisSifre1"}""";
@@ -90,6 +93,26 @@ class RateLimitIT {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/catalog/brands").with(fromIp(clientIp)))
                 .andExpect(status().isOk());
+    }
+
+    // Counted before authentication, so even anonymous callers cannot request upload URLs without limit
+    @Test
+    void imageUpload_overLimit_returns429() throws Exception {
+        String clientIp = uniqueIp();
+        for (int attempt = 0; attempt < IMAGE_UPLOAD_CAPACITY; attempt++) {
+            requestImageUpload(clientIp).andExpect(status().isUnauthorized());
+        }
+
+        requestImageUpload(clientIp)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
+                .andExpect(jsonPath("$.path").value("/api/listing-images"));
+    }
+
+    private ResultActions requestImageUpload(String clientIp) throws Exception {
+        return mockMvc.perform(post("/api/listing-images").with(fromIp(clientIp))
+                .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"contentType": "image/jpeg", "sizeBytes": 1000}"""));
     }
 
     private ResultActions login(String clientIp) throws Exception {

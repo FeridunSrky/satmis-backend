@@ -14,6 +14,7 @@ import com.satmis.user.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,7 @@ public class ListingImageService {
     private final ListingOwnerPolicy listingOwnerPolicy;
     private final ObjectStorage objectStorage;
     private final ListingImageProperties properties;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ImageUploadResponse requestUpload(Long userId, ImageUploadRequest request) {
@@ -87,7 +89,7 @@ public class ListingImageService {
         return new UploadedImageResponse(image.getId(), objectStorage.publicUrl(image.getObjectKey()));
     }
 
-    // Repeating the call is harmless; the stored file is removed later by the cleanup
+    // Repeating the call is harmless: 204 while the image is still DELETED, 404 once the cleanup removed it
     @Transactional
     public void deleteUpload(Long userId, Long imageId) {
         ListingImage image = listingImageRepository.findByIdAndOwnerId(imageId, userId)
@@ -95,7 +97,9 @@ public class ListingImageService {
         if (image.getStatus() == ListingImageStatus.ATTACHED) {
             throw new ApiException(HttpStatus.CONFLICT, "İlana eklenmiş görseli kaldırmak için ilanı güncelleyin");
         }
-        markDeleted(image);
+        if (image.getStatus() != ListingImageStatus.DELETED) {
+            markDeleted(List.of(image));
+        }
     }
 
     /**
@@ -115,9 +119,7 @@ public class ListingImageService {
                 .map(imageId -> requireUsableFor(listing, ownedById.get(imageId)))
                 .toList();
 
-        listing.getImages().stream()
-                .filter(previous -> !requested.contains(previous))
-                .forEach(ListingImageService::markDeleted);
+        markDeleted(listing.getImages().stream().filter(previous -> !requested.contains(previous)).toList());
         listing.getImages().clear();
         for (int index = 0; index < requested.size(); index++) {
             ListingImage image = requested.get(index);
@@ -132,7 +134,7 @@ public class ListingImageService {
     // Called before a listing is deleted; the rows stay so their stored files can be removed
     @Transactional
     public void releaseImages(Listing listing) {
-        listing.getImages().forEach(ListingImageService::markDeleted);
+        markDeleted(List.copyOf(listing.getImages()));
         listing.getImages().clear();
     }
 
@@ -147,11 +149,20 @@ public class ListingImageService {
         return image;
     }
 
-    private static void markDeleted(ListingImage image) {
-        image.setStatus(ListingImageStatus.DELETED);
-        image.setListing(null);
-        image.setDisplayOrder(null);
-        image.setCover(false);
+    // The stored files are removed after commit by ListingImageDeletionListener, or later by the cleanup job
+    private void markDeleted(List<ListingImage> images) {
+        if (images.isEmpty()) {
+            return;
+        }
+        for (ListingImage image : images) {
+            image.setStatus(ListingImageStatus.DELETED);
+            image.setListing(null);
+            image.setDisplayOrder(null);
+            image.setCover(false);
+        }
+        eventPublisher.publishEvent(new ListingImagesDeletedEvent(images.stream()
+                .map(image -> new DeletedImageView(image.getId(), image.getObjectKey()))
+                .toList()));
     }
 
     // Size and type are signed into the upload URL, but only the file's own bytes prove it is that image type
@@ -166,8 +177,7 @@ public class ListingImageService {
                 .isPresent();
         if (!sameSize || !sameType) {
             log.warn("Rejected upload of listing image {}: size matches={}, type matches={}", image.getId(), sameSize, sameType);
-            objectStorage.delete(key);
-            markDeleted(image);
+            markDeleted(List.of(image));
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.IMAGE_INVALID,
                     "Yüklenen dosya geçerli bir " + image.getImageType() + " görseli değil");
         }
@@ -176,7 +186,7 @@ public class ListingImageService {
     // Other users' images are reported as missing too, so ids cannot be probed
     private ListingImage findOwnedUpload(Long userId, Long imageId) {
         return listingImageRepository.findByIdAndOwnerId(imageId, userId)
-                .filter(image -> image.getObjectKey() != null && image.getStatus() != ListingImageStatus.DELETED)
+                .filter(image -> image.getStatus() != ListingImageStatus.DELETED)
                 .orElseThrow(ListingImageService::imageNotFound);
     }
 
