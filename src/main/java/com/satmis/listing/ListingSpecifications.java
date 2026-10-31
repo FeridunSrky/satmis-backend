@@ -36,6 +36,10 @@ final class ListingSpecifications {
         };
     }
 
+    static Specification<Listing> withStatus(ListingStatus status) {
+        return (root, query, builder) -> builder.equal(root.get("status"), status);
+    }
+
     static Specification<Listing> ownedBy(Long ownerId) {
         return (root, query, builder) -> builder.equal(root.get("owner").get(ID), ownerId);
     }

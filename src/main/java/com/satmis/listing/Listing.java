@@ -20,6 +20,7 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -61,10 +62,15 @@ public class Listing extends AuditableEntity {
     @Column(nullable = false, length = 3)
     private CurrencyType currency = CurrencyType.TRY;
 
-    // Switch default to PENDING_APPROVAL once the admin approval flow exists
+    // New listings wait for an admin; approve/reject/submitForApproval keep status and reason consistent
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private ListingStatus status = ListingStatus.ACTIVE;
+    private ListingStatus status = ListingStatus.PENDING_APPROVAL;
+
+    // Set only while REJECTED (ck_listings_rejection_reason); shown to the owner
+    @Column(length = 500)
+    @Setter(AccessLevel.NONE)
+    private String rejectionReason;
 
     @Column(nullable = false)
     private int viewCount = 0;
@@ -86,6 +92,21 @@ public class Listing extends AuditableEntity {
     @OrderBy("displayOrder ASC")
     @BatchSize(size = 20)
     private List<ListingImage> images = new ArrayList<>();
+
+    public void submitForApproval() {
+        status = ListingStatus.PENDING_APPROVAL;
+        rejectionReason = null;
+    }
+
+    public void approve() {
+        status = ListingStatus.ACTIVE;
+        rejectionReason = null;
+    }
+
+    public void reject(String reason) {
+        status = ListingStatus.REJECTED;
+        rejectionReason = reason;
+    }
 
     // What anonymous visitors and other users may see: active, and the owner is not blocked
     public boolean isPubliclyVisible() {

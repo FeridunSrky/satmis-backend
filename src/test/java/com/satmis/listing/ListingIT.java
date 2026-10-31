@@ -3,6 +3,7 @@ package com.satmis.listing;
 import com.jayway.jsonpath.JsonPath;
 import com.satmis.TestImages;
 import com.satmis.TestJwtSecret;
+import com.satmis.TestListings;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -90,7 +91,7 @@ class ListingIT {
         perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andExpect(header().string(HttpHeaders.LOCATION, containsString(LISTINGS + "/")))
-                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
                 .andExpect(jsonPath("$.version").value(0))
                 .andExpect(jsonPath("$.vehicle.brandName").value("Renault"))
                 .andExpect(jsonPath("$.vehicle.modelName").value("Clio"))
@@ -519,6 +520,8 @@ class ListingIT {
         body.put("version", currentVersion(listingId));
         body.put("imageIds", imageIdsOfListing(listingId));
         perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
+        // A new title goes back to approval; publish it to check the search text followed the edit
+        TestListings.approve(jdbcTemplate, listingId);
 
         assertThat(keywordSearchIds(newMarker)).containsExactly(listingId);
         assertThat(keywordSearchIds(oldMarker)).isEmpty();
@@ -628,6 +631,7 @@ class ListingIT {
         return createListing(token, listingBody(seriesId, districtId));
     }
 
+    // Published right away: most tests here are about live listings, approval is covered by ListingModerationIT
     private long createListing(String token, Map<String, Object> body) throws Exception {
         if (!body.containsKey("imageIds")) {
             withImages(body, token);
@@ -635,7 +639,9 @@ class ListingIT {
         String response = perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.<Number>read(response, "$.id").longValue();
+        long listingId = JsonPath.<Number>read(response, "$.id").longValue();
+        TestListings.approve(jdbcTemplate, listingId);
+        return listingId;
     }
 
     private ResultActions changeStatus(String token, long listingId, String targetStatus) throws Exception {

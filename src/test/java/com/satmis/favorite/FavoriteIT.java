@@ -3,6 +3,7 @@ package com.satmis.favorite;
 import com.jayway.jsonpath.JsonPath;
 import com.satmis.TestImages;
 import com.satmis.TestJwtSecret;
+import com.satmis.TestListings;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -156,7 +157,9 @@ class FavoriteIT {
         String response = perform(post("/api/listings"), token, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.<Number>read(response, "$.id").longValue();
+        long listingId = JsonPath.<Number>read(response, "$.id").longValue();
+        TestListings.approve(jdbcTemplate, listingId);
+        return listingId;
     }
 
     private long userId(String token) throws Exception {

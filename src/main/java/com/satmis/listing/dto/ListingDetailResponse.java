@@ -22,6 +22,8 @@ public record ListingDetailResponse(
         BigDecimal price,
         CurrencyType currency,
         ListingStatus status,
+        // Only while REJECTED, which only the owner and admins can see
+        String rejectionReason,
         int viewCount,
         long favoriteCount,
         boolean favoritedByMe,
