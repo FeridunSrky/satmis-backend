@@ -16,6 +16,7 @@ Sahibinden tarzı araç ilanı platformu. Üniversite bitirme projesi, ama sekt�
 - İlan testleri depo açmaz: `TestImages.uploaded` görseli JDBC ile `UPLOADED` olarak ekler.
 - İlan detayı `ListingDetailAssembler` üzerinden kurulur (favori sayısı / favorilerimde mi bilgisi için).
 - İlan güncellemede optimistic locking: istek `version` taşır; detay/görsel değişiklikleri de version'ı artırsın diye `forceVersionIncrement` kullanılır.
+- Admin onayı: yeni ilan `PENDING_APPROVAL` açılır. `ListingService.update` başlık/açıklama/fiyat/para birimi/görsel seti değişirse (ya da ilan `REJECTED` ise) `submitForApproval` çağırır; km gibi diğer alanlar ve görsel sırası onayı bozmaz. Admin uçları `ListingModerationService`'te (`/api/admin/listings`): onay sadece `PENDING_APPROVAL`'da, red `PENDING_APPROVAL`/`ACTIVE`'de; ikisi de incelenen `version`'ı ister (sahibi arada düzenlediyse 409). Durum + `rejection_reason` sadece `Listing.approve/reject/submitForApproval` ile değişir (`ck_listings_rejection_reason`: neden sadece `REJECTED`'ta dolu). Testler yayındaki ilan için `TestListings.approve` (JDBC) kullanır.
 - Katalog seed'i `src/main/resources/seed/*.json` dosyalarından açılışta `CatalogSeedRunner` ile yüklenir. Sadece eksik satırları ekler, mevcutları değiştirmez ya da silmez. Kapatmak için `app.seed.catalog-enabled=false`.
 - Sıralama Türkçe `Collator` ile Java tarafında yapılır (DB collation'ına güvenilmez).
 

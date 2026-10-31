@@ -290,6 +290,7 @@ interface ListingDetail {
   price: number;
   currency: CurrencyType;
   status: ListingStatus;
+  rejectionReason: string | null; // sadece REJECTED iken dolu; reddedilen ilanı sadece sahibi ve admin görür
   viewCount: number;        // bu görüntülemeden önceki sayı; sahibin bakışları sayılmaz
   favoriteCount: number;
   favoritedByMe: boolean;   // token yoksa her zaman false
@@ -368,7 +369,7 @@ interface ListingRequest {
 | 403 | Başkasının ilanını güncelleme/silme/durum değiştirme | "Yetkiniz yok" göster |
 | 404 | İlan yok **veya** ACTIVE değil ve bakan kişi sahibi değil | "İlan bulunamadı" sayfası |
 | 409 | `version` eski: ilan arada başka yerden güncellenmiş | Uyarı göster, detayı yeniden çek, kullanıcı tekrar denesin |
-| 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi | `message`'ı göster |
+| 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi (onay bekleyen/reddedilen ilan dahil) | `message`'ı göster |
 | 422 + `code: "PHONE_REQUIRED"` | Profilde telefon yokken ilan verme | Profil sayfasına yönlendir |
 | 422 + `code: "EMAIL_NOT_VERIFIED"` | E-posta doğrulanmamışken ilan verme | "E-postanı doğrula" uyarısı + tekrar gönder butonu |
 | 422 + `code: "IMAGE_NOT_AVAILABLE"` | `imageIds` içinde başkasının, başka bir ilanın, yüklemesi tamamlanmamış ya da silinmiş bir görsel var | `message`'ı göster; görselleri yeniden yükletin (form durumu bayatlamış olabilir) |
@@ -381,7 +382,18 @@ interface ListingRequest {
 | PASSIVE | ACTIVE, SOLD |
 | SOLD | — (son durum, ilan artık güncellenemez) |
 
-Diğer her geçiş (PENDING_APPROVAL dahil) 422 döner. Yeni ilanlar şu an doğrudan ACTIVE yayınlanır; admin onayı ileride gelecek.
+Diğer her geçiş 422 döner. `PENDING_APPROVAL` ve `REJECTED` durumlarından sahibi bu uçla çıkamaz (aşağıya bakın).
+
+### Admin onayı
+
+- **Yeni ilan `PENDING_APPROVAL` olarak açılır** (`POST` cevabında `status: "PENDING_APPROVAL"`). Admin onaylayana kadar aramada görünmez; detayını sadece sahibi görür.
+- Admin onaylarsa `ACTIVE` olur. Reddederse `REJECTED` olur ve `rejectionReason` dolar; sahibi nedeni detayda görür.
+- **Yayındaki ilanın düzenlenmesi:** `ACTIVE` veya `PASSIVE` bir ilanın **başlığı, açıklaması, fiyatı/para birimi veya görsel seti** değişirse ilan tekrar `PENDING_APPROVAL` olur ve onaylanana kadar yayından kalkar. Diğer alanlar (km, renk, yıl, ilçe …) ve sadece görsel **sırası** değişirse durum değişmez.
+  - `PUT` cevabındaki `status` güncel durumu söyler. Frontend, düzenleme sonrası `PENDING_APPROVAL` dönerse kullanıcıya "İlanınız tekrar onaya gönderildi" demeli. Kaydetmeden önce de uyarmak iyi olur: "Başlık, açıklama, fiyat veya fotoğraf değişikliği ilanı onay sürecine alır."
+  - Onaylanan `PASSIVE` ilan `ACTIVE` olarak yayına girer; sahibi isterse tekrar pasife alır.
+- **Reddedilen ilan:** sahibi düzenleyip kaydedince (hangi alan olursa olsun) tekrar `PENDING_APPROVAL` olur ve `rejectionReason` silinir. Silmek de mümkündür.
+- Admin yayındaki bir ilanı da reddedebilir (yayından kaldırma). Bu durumda ilan `REJECTED` olur.
+- Onay bekleyen ilan da düzenlenebilir, sırada kalır.
 
 ### Görünürlük
 
@@ -434,11 +446,24 @@ interface AdminUser {
 }
 ```
 
+### İlan onayı
+
+| Metot | URL | Gövde | Cevap |
+|---|---|---|---|
+| GET | `/api/admin/listings?status=&page=&size=` | | `PageResponse<ListingSummary>`, en eski başta. `status` verilmezse `PENDING_APPROVAL` (her `ListingStatus` değeri geçerli; bilinmeyen değer `400`, `errors.status`) |
+| GET | `/api/admin/listings/{id}` | | `ListingDetail`, her durumda; satıcı telefonu dahil; görüntülenme sayılmaz |
+| POST | `/api/admin/listings/{id}/approve` | `{ "version": number }` | `ListingDetail` (`ACTIVE`) |
+| POST | `/api/admin/listings/{id}/reject` | `{ "version": number, "reason": string }` | `ListingDetail` (`REJECTED`) |
+
+- `version`: admin'in incelediği detaydaki `version`. Sahibi bu arada ilanı değiştirdiyse `409` döner ("İlan siz incelerken değişti…"): detayı yeniden çekip tekrar inceleyin. Böylece görülmemiş içerik onaylanmaz.
+- `reason`: zorunlu, en fazla 500 karakter, sahibine aynen gösterilir. Eksikse `400` (`errors.reason`).
+- Onay sadece `PENDING_APPROVAL` ilanda, red `PENDING_APPROVAL` veya `ACTIVE` ilanda yapılabilir; aksi `422`. İlan yoksa `404`.
+
 ## Enum değerleri ve önerilen Türkçe etiketler
 
 | Enum | Değer → etiket |
 |---|---|
-| `ListingStatus` | `PENDING_APPROVAL` Onay bekliyor · `ACTIVE` Yayında · `PASSIVE` Yayında değil · `SOLD` Satıldı |
+| `ListingStatus` | `PENDING_APPROVAL` Onay bekliyor · `ACTIVE` Yayında · `PASSIVE` Yayında değil · `SOLD` Satıldı · `REJECTED` Reddedildi |
 | `CurrencyType` | `TRY` ₺ · `USD` $ · `EUR` € |
 | `FuelType` | `GASOLINE` Benzin · `DIESEL` Dizel · `LPG` LPG · `HYBRID` Hibrit · `ELECTRIC` Elektrik |
 | `GearType` | `MANUAL` Manuel · `AUTOMATIC` Otomatik · `SEMI_AUTOMATIC` Yarı otomatik |

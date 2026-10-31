@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -25,7 +26,7 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ListingService {
 
-    // PENDING_APPROVAL transitions belong to the future admin approval flow, not to owners
+    // Approval states (PENDING_APPROVAL, REJECTED) are left only through an admin or an edit, never by the owner
     private static final Map<ListingStatus, Set<ListingStatus>> OWNER_TRANSITIONS = Map.of(
             ListingStatus.ACTIVE, EnumSet.of(ListingStatus.PASSIVE, ListingStatus.SOLD),
             ListingStatus.PASSIVE, EnumSet.of(ListingStatus.ACTIVE, ListingStatus.SOLD));
@@ -60,8 +61,13 @@ public class ListingService {
             throw staleVersion();
         }
         listingRepository.forceVersionIncrement(listing);
+        boolean needsReview = listing.getStatus() == ListingStatus.REJECTED
+                || moderatedContentChanged(listing, request);
         applyRequest(listing, request);
         listingImageService.replaceListingImages(listing, request.imageIds());
+        if (needsReview) {
+            listing.submitForApproval();
+        }
         // Flush so the response carries the version the client must send next time
         listingRepository.flush();
         return listingDetailAssembler.assemble(listing, userId);
@@ -102,6 +108,18 @@ public class ListingService {
                         listing.getTitle(), listing.getDescription())
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining(" "));
+    }
+
+    // What an admin approved: text, price and the set of images. Other details (km, colour, ...) change freely;
+    // reordering images only picks a different approved image as cover.
+    private static boolean moderatedContentChanged(Listing listing, ListingRequest request) {
+        Set<Long> currentImageIds = listing.getImages().stream().map(ListingImage::getId)
+                .collect(Collectors.toSet());
+        return !Objects.equals(listing.getTitle(), request.title())
+                || !Objects.equals(listing.getDescription(), request.description())
+                || listing.getPrice().compareTo(request.price()) != 0
+                || listing.getCurrency() != request.currency()
+                || !currentImageIds.equals(new HashSet<>(request.imageIds()));
     }
 
     private Listing findOwnedListing(Long listingId, Long userId) {
