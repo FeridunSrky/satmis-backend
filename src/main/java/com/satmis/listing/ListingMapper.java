@@ -67,6 +67,7 @@ public interface ListingMapper {
     @Mapping(target = "district", ignore = true)
     @Mapping(target = "vehicleDetail", ignore = true)
     @Mapping(target = "images", ignore = true)
+    @Mapping(target = "searchText", ignore = true)
     void updateListing(ListingRequest request, @MappingTarget Listing listing);
 
     @Mapping(target = "listingId", ignore = true)

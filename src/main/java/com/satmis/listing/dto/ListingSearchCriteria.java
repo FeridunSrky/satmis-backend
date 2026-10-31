@@ -9,11 +9,14 @@ import com.satmis.enums.GearType;
 import com.satmis.enums.VehicleCondition;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
-// All filters are optional; price filters compare raw amounts, so pair them with currency
+// All filters are optional; price filters compare raw amounts, so pair them with currency.
+// q matches brand, model, series, title and description by word prefix; every term must match.
 public record ListingSearchCriteria(
+        @Size(max = 100) String q,
         @Positive Long brandId,
         @Positive Long modelId,
         @Positive Long seriesId,
