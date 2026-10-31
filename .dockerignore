@@ -18,3 +18,4 @@ docs/
 *.md
 *.png
 docker-compose.yml
+docker/

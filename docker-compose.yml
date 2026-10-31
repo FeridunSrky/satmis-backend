@@ -25,5 +25,39 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # S3-compatible storage standing in for Cloudflare R2. Images are publicly readable at
+  # http://localhost:8333/satmis-images/<key>; writing needs the local-only keys in docker/seaweedfs/s3.json.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.51
+    container_name: satmis-seaweedfs
+    command: server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+    ports:
+      - "8333:8333"
+    volumes:
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - satmis-seaweedfs-data:/data
+    healthcheck:
+      # The S3 server listens on the container address, not on localhost
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$(hostname -i):8333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Creates the bucket once storage is up; an existing bucket counts as success
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.51
+    container_name: satmis-seaweedfs-init
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        out=$$(echo 's3.bucket.create -name satmis-images' | weed shell -master=seaweedfs:9333 2>&1);
+        echo "$$out"; echo "$$out" | grep -qE 'created bucket|already exists'
+    restart: "no"
+
 volumes:
   satmis-pgdata:
+  satmis-seaweedfs-data:

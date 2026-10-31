@@ -37,6 +37,11 @@ class ProdProfileIT {
         registry.add("MAIL_PASSWORD", () -> "unused-in-test");
         registry.add("MAIL_FROM", () -> "no-reply@satmis.example");
         registry.add("FRONTEND_BASE_URL", () -> "https://satmis.example");
+        registry.add("STORAGE_ENDPOINT", () -> "https://storage.satmis.example");
+        registry.add("STORAGE_BUCKET", () -> "satmis-images");
+        registry.add("STORAGE_ACCESS_KEY", () -> "unused-in-test");
+        registry.add("STORAGE_SECRET_KEY", () -> "unused-in-test");
+        registry.add("STORAGE_PUBLIC_BASE_URL", () -> "https://img.satmis.example");
     }
 
     @Autowired

@@ -24,7 +24,9 @@ class RequiredEnvironmentInitializerTest {
                 .isInstanceOf(MissingRequiredPropertiesException.class)
                 .satisfies(exception -> assertThat(((MissingRequiredPropertiesException) exception).getMissingRequiredProperties())
                         .containsExactlyInAnyOrder("DB_URL", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS",
-                                "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL"));
+                                "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL",
+                                "STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY",
+                                "STORAGE_PUBLIC_BASE_URL"));
     }
 
     @Test
@@ -39,7 +41,12 @@ class RequiredEnvironmentInitializerTest {
                 .withProperty("MAIL_USERNAME", "satmis")
                 .withProperty("MAIL_PASSWORD", "password")
                 .withProperty("MAIL_FROM", "no-reply@satmis.com")
-                .withProperty("FRONTEND_BASE_URL", "https://satmis.com");
+                .withProperty("FRONTEND_BASE_URL", "https://satmis.com")
+                .withProperty("STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+                .withProperty("STORAGE_BUCKET", "satmis-images")
+                .withProperty("STORAGE_ACCESS_KEY", "access")
+                .withProperty("STORAGE_SECRET_KEY", "secret")
+                .withProperty("STORAGE_PUBLIC_BASE_URL", "https://img.satmis.com");
         environment.setActiveProfiles("prod");
 
         assertThatCode(() -> initializer.initialize(contextWith(environment))).doesNotThrowAnyException();
@@ -53,6 +60,19 @@ class RequiredEnvironmentInitializerTest {
         assertThatThrownBy(() -> initializer.initialize(contextWith(environment)))
                 .isInstanceOf(MissingRequiredPropertiesException.class)
                 .hasMessageContaining("DB_PASSWORD");
+    }
+
+    @Test
+    void initialize_devProfileWithoutStorageKeys_failsNamingThem() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("JWT_SECRET", "secret")
+                .withProperty("DB_PASSWORD", "password");
+        environment.setActiveProfiles("dev");
+
+        assertThatThrownBy(() -> initializer.initialize(contextWith(environment)))
+                .isInstanceOf(MissingRequiredPropertiesException.class)
+                .satisfies(exception -> assertThat(((MissingRequiredPropertiesException) exception).getMissingRequiredProperties())
+                        .containsExactlyInAnyOrder("STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY"));
     }
 
     @Test

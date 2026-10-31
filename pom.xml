@@ -33,6 +33,7 @@
 		<lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<bucket4j.version>8.21.0</bucket4j.version>
+		<awssdk.version>2.57.8</awssdk.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -114,6 +115,26 @@
 			<artifactId>bucket4j_jdk17-core</artifactId>
 			<version>${bucket4j.version}</version>
 		</dependency>
+		<!-- S3 API client for listing images: Cloudflare R2 in prod, SeaweedFS in dev and tests.
+		     The lightweight JDK HTTP client replaces the default Netty and Apache clients. -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>netty-nio-client</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>software.amazon.awssdk</groupId>
+					<artifactId>apache5-client</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>url-connection-client</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
@@ -150,6 +171,18 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
+
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${awssdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<build>
 		<plugins>
