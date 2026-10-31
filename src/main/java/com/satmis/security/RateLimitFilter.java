@@ -18,7 +18,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 
-// Limits the auth and mail-sending endpoints per client IP against password guessing, sign-up and mail spam.
+// Limits the auth, mail-sending and upload-URL endpoints per client IP against password guessing, sign-up and
+// mail spam, and against filling the image storage.
 // Buckets live in memory, so each app instance counts on its own.
 @Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -38,7 +39,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 "/api/auth/refresh", properties.refresh(),
                 "/api/users/me/email-verification", properties.resendVerification(),
                 "/api/auth/forgot-password", properties.forgotPassword(),
-                "/api/auth/reset-password", properties.resetPassword());
+                "/api/auth/reset-password", properties.resetPassword(),
+                "/api/listing-images", properties.imageUpload());
         this.buckets = new ConcurrentLruCache<>(properties.maxTrackedClients(),
                 key -> newBucket(rulesByPath.get(key.path())));
         this.errorWriter = errorWriter;

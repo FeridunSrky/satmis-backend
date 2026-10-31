@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.unit.DataSize;
@@ -49,13 +50,16 @@ class ListingImageServiceTest {
     private ListingOwnerPolicy listingOwnerPolicy;
     @Mock
     private ObjectStorage objectStorage;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private ListingImageService service;
 
     @BeforeEach
     void setUp() {
-        ListingImageProperties properties = new ListingImageProperties(DataSize.ofMegabytes(10), 2, Duration.ofMinutes(10));
-        service = new ListingImageService(listingImageRepository, listingOwnerPolicy, objectStorage, properties);
+        ListingImageProperties properties = new ListingImageProperties(DataSize.ofMegabytes(10), 2,
+                Duration.ofMinutes(10), Duration.ofHours(24));
+        service = new ListingImageService(listingImageRepository, listingOwnerPolicy, objectStorage, properties, eventPublisher);
     }
 
     @Test
@@ -96,8 +100,8 @@ class ListingImageServiceTest {
     }
 
     @Test
-    void completeUpload_fileOfAnotherType_deletesItAndReturns422() {
-        ListingImage image = pendingImage();
+    void completeUpload_fileOfAnotherType_marksDeletedForRemovalAndReturns422() {
+        ListingImage image = imageWithId(IMAGE_ID, ListingImageStatus.PENDING, null);
         when(listingImageRepository.findByIdAndOwnerId(IMAGE_ID, USER_ID)).thenReturn(Optional.of(image));
         when(objectStorage.find(KEY)).thenReturn(Optional.of(new StoredObject(SIZE, "image/jpeg")));
         when(objectStorage.readFirstBytes(eq(KEY), anyInt())).thenReturn(PNG_HEADER);
@@ -105,7 +109,7 @@ class ListingImageServiceTest {
         assertThatThrownBy(() -> service.completeUpload(USER_ID, IMAGE_ID))
                 .isInstanceOfSatisfying(ApiException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.IMAGE_INVALID));
-        verify(objectStorage).delete(KEY);
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(IMAGE_ID, KEY))));
         assertThat(image.getStatus()).isEqualTo(ListingImageStatus.DELETED);
     }
 
@@ -142,6 +146,27 @@ class ListingImageServiceTest {
     }
 
     @Test
+    void deleteUpload_uploadedImage_marksDeletedAndPublishesItForRemoval() {
+        ListingImage image = imageWithId(IMAGE_ID, ListingImageStatus.UPLOADED, null);
+        when(listingImageRepository.findByIdAndOwnerId(IMAGE_ID, USER_ID)).thenReturn(Optional.of(image));
+
+        service.deleteUpload(USER_ID, IMAGE_ID);
+
+        assertThat(image.getStatus()).isEqualTo(ListingImageStatus.DELETED);
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(IMAGE_ID, KEY))));
+    }
+
+    @Test
+    void deleteUpload_alreadyDeleted_publishesNothing() {
+        ListingImage image = imageWithId(IMAGE_ID, ListingImageStatus.DELETED, null);
+        when(listingImageRepository.findByIdAndOwnerId(IMAGE_ID, USER_ID)).thenReturn(Optional.of(image));
+
+        service.deleteUpload(USER_ID, IMAGE_ID);
+
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
     void deleteUpload_otherUsersImage_returns404() {
         when(listingImageRepository.findByIdAndOwnerId(anyLong(), anyLong())).thenReturn(Optional.empty());
 
@@ -166,6 +191,19 @@ class ListingImageServiceTest {
         assertThat(kept.getDisplayOrder()).isEqualTo(1);
         assertThat(dropped.getStatus()).isEqualTo(ListingImageStatus.DELETED);
         assertThat(dropped.getListing()).isNull();
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(11L, KEY))));
+    }
+
+    @Test
+    void replaceListingImages_nothingDropped_publishesNothing() {
+        Listing listing = listingWithId(1L);
+        ListingImage kept = imageWithId(10L, ListingImageStatus.ATTACHED, listing);
+        listing.getImages().add(kept);
+        when(listingImageRepository.findAllByIdInAndOwnerId(List.of(10L), USER_ID)).thenReturn(List.of(kept));
+
+        service.replaceListingImages(listing, List.of(10L));
+
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test

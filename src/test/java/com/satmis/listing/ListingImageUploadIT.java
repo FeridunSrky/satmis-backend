@@ -28,6 +28,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -49,6 +51,8 @@ class ListingImageUploadIT {
     private static final String IMAGES = "/api/listing-images";
     private static final String JPEG = "image/jpeg";
     private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final Duration REMOVAL_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration POLL_INTERVAL = Duration.ofMillis(50);
 
     @Container
     @ServiceConnection
@@ -74,6 +78,9 @@ class ListingImageUploadIT {
 
     @Autowired
     private ObjectStorage objectStorage;
+
+    @Autowired
+    private ListingImageCleanupService listingImageCleanupService;
 
     @Test
     void uploadFlow_validJpeg_isStoredCheckedAndPubliclyReadable() throws Exception {
@@ -131,13 +138,13 @@ class ListingImageUploadIT {
         byte[] png = png(1024);
         String response = requestUpload(token, JPEG, png.length).andReturn().getResponse().getContentAsString();
         assertThat(putFile(response, png)).isEqualTo(200);
+        String objectKey = objectKeyOf(idOf(response));
 
         perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("IMAGE_INVALID"));
 
-        assertThat(statusOf(idOf(response))).isEqualTo("DELETED");
-        assertThat(objectStorage.find(objectKeyOf(idOf(response)))).isEmpty();
+        awaitRemoved(idOf(response), objectKey);
         perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isNotFound());
     }
 
@@ -192,14 +199,44 @@ class ListingImageUploadIT {
     }
 
     @Test
-    void deleteUpload_repeated_returns204AndMarksImageDeleted() throws Exception {
+    void deleteUpload_uploadedImage_removesFileAndRowAfterCommit() throws Exception {
         String token = registerVerifiedUser();
         long imageId = uploadAndComplete(token);
+        String objectKey = objectKeyOf(imageId);
 
         perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNoContent());
-        perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNoContent());
 
-        assertThat(statusOf(imageId)).isEqualTo("DELETED");
+        awaitRemoved(imageId, objectKey);
+        perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void cleanUp_uploadAbandonedForADay_isRemovedAndFreshOneKept() throws Exception {
+        String token = registerVerifiedUser();
+        long abandonedId = uploadAndComplete(token);
+        long freshId = uploadAndComplete(token);
+        String abandonedKey = objectKeyOf(abandonedId);
+        jdbcTemplate.update("update listing_images set created_at = now() - interval '25 hours' where id = ?", abandonedId);
+
+        listingImageCleanupService.cleanUp();
+
+        assertThat(rowExists(abandonedId)).isFalse();
+        assertThat(objectStorage.find(abandonedKey)).isEmpty();
+        assertThat(statusOf(freshId)).isEqualTo("UPLOADED");
+        assertThat(objectStorage.find(objectKeyOf(freshId))).isPresent();
+    }
+
+    @Test
+    void cleanUp_imageInAListing_isKeptHoweverOld() throws Exception {
+        String token = registerVerifiedUser();
+        long imageId = uploadAndComplete(token);
+        perform(post("/api/listings"), token, listingBody(imageId)).andExpect(status().isCreated());
+        jdbcTemplate.update("update listing_images set created_at = now() - interval '30 days' where id = ?", imageId);
+
+        listingImageCleanupService.cleanUp();
+
+        assertThat(statusOf(imageId)).isEqualTo("ATTACHED");
+        assertThat(objectStorage.find(objectKeyOf(imageId))).isPresent();
     }
 
     @Test
@@ -218,8 +255,9 @@ class ListingImageUploadIT {
         assertThat(statusOf(imageId)).isEqualTo("ATTACHED");
         perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isConflict());
 
+        String objectKey = objectKeyOf(imageId);
         perform(delete("/api/listings/{id}", idOf(listing)), token, null).andExpect(status().isNoContent());
-        assertThat(statusOf(imageId)).isEqualTo("DELETED");
+        awaitRemoved(imageId, objectKey);
     }
 
     private Map<String, Object> listingBody(long imageId) {
@@ -282,6 +320,20 @@ class ListingImageUploadIT {
             jdbcTemplate.update("update users set email_verified = true where email = ?", email);
         }
         return JsonPath.read(response, "$.accessToken");
+    }
+
+    // Files of deleted images are removed asynchronously after the commit, then their rows
+    private void awaitRemoved(long imageId, String objectKey) throws InterruptedException {
+        Instant deadline = Instant.now().plus(REMOVAL_TIMEOUT);
+        while (rowExists(imageId) && Instant.now().isBefore(deadline)) {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+        }
+        assertThat(rowExists(imageId)).as("image row removed").isFalse();
+        assertThat(objectStorage.find(objectKey)).as("stored file removed").isEmpty();
+    }
+
+    private boolean rowExists(long imageId) {
+        return jdbcTemplate.queryForObject("select count(*) from listing_images where id = ?", Integer.class, imageId) > 0;
     }
 
     private String statusOf(long imageId) {

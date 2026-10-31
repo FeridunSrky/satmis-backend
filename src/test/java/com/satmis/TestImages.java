@@ -18,8 +18,8 @@ public final class TestImages {
 
     public static long uploaded(JdbcTemplate jdbcTemplate, long ownerId) {
         return jdbcTemplate.queryForObject("""
-                        insert into listing_images (owner_id, status, object_key, image_type, size_bytes, cover, created_at)
-                        values (?, 'UPLOADED', ?, 'JPEG', 1000, false, now())
+                        insert into listing_images (owner_id, status, object_key, image_type, size_bytes, cover, created_at, version)
+                        values (?, 'UPLOADED', ?, 'JPEG', 1000, false, now(), 0)
                         returning id""",
                 Long.class, ownerId, "listings/test/" + UUID.randomUUID() + ".jpg");
     }

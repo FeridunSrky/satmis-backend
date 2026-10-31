@@ -13,6 +13,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -27,6 +28,9 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 public class ListingImage extends AuditableEntity {
+
+    @Version
+    private Long version;
 
     // Name of the file in object storage; the public URL is derived from it so the domain can change
     @Column(nullable = false, unique = true, length = 200)

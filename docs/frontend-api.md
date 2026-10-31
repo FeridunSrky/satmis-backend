@@ -106,6 +106,7 @@ Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Reques
 | `POST /api/users/me/email-verification` | 10 dakikada 3 |
 | `POST /api/auth/forgot-password` | 15 dakikada 5 |
 | `POST /api/auth/reset-password` | 15 dakikada 10 |
+| `POST /api/listing-images` | 10 dakikada 60 (yükleme URL'si isteği; dosyanın depoya PUT'u sayılmaz) |
 
 Refresh interceptor'ı `429`'u oturum düşmesi gibi ele almamalı (kullanıcıyı çıkışa atmamalı); `Retry-After` kadar bekleyip tekrar denenebilir.
 
@@ -158,7 +159,7 @@ Dosya backend'den geçmez: tarayıcı onu **doğrudan depoya** (dev'de SeaweedFS
 |---|---|---|---|
 | POST | `/api/listing-images` | giriş | 201 `ImageUpload` |
 | POST | `/api/listing-images/{id}/complete` | sahibi | 200 `UploadedImage` (tekrar çağrılabilir, aynı cevabı döner) |
-| DELETE | `/api/listing-images/{id}` | sahibi | 204 (tekrar çağrılabilir) |
+| DELETE | `/api/listing-images/{id}` | sahibi | 204. Tekrar çağrılabilir, ama dosya birkaç saniye içinde silinince görsel tamamen kalkar ve tekrar çağrı `404` döner: `404`'ü de "silindi" sayın. |
 
 ```ts
 interface ImageUploadRequest {
@@ -196,13 +197,15 @@ interface UploadedImage {
 | 422 + `IMAGE_LIMIT_REACHED` | POST | Kullanıcının henüz bir ilana eklenmemiş 40 görseli var | `message`'ı göster; kullanılmayan görselleri `DELETE` ile silmeyi öner |
 | 422 + `IMAGE_NOT_UPLOADED` | complete | Dosya depoda yok (PUT yapılmamış ya da başarısız) | PUT'u tekrar deneyin (URL hâlâ geçerliyse), sonra complete'i tekrar çağırın |
 | 422 + `IMAGE_INVALID` | complete | Dosyanın içeriği bildirilen türde değil ya da boyutu farklı. Dosya silinir, bu id artık kullanılamaz | "Dosya geçerli bir görsel değil" göster; kullanıcı başka dosya seçsin |
-| 404 | complete / DELETE | Görsel yok, silinmiş ya da başkasının | Görseli formdan çıkar |
+| 404 | complete / DELETE | Görsel yok, silinmiş ya da başkasının | Görseli formdan çıkar (DELETE'te başarı say) |
+| 429 | POST | 10 dakikada 60'tan fazla yükleme URL'si istendi | Genel 429 davranışı; `Retry-After` kadar bekleyip sıradaki görsellere devam |
 | 409 | DELETE | Görsel bir ilana eklenmiş | İlanı PUT ile güncelleyerek listeden çıkarın |
 | 503 | herhangi | Depoya ulaşılamıyor | "Tekrar deneyin" göster |
 
 **Davranış notları:**
 
-- Kullanıcı formdan bir görseli kaldırırsa (ilan henüz kaydedilmediyse) `DELETE /api/listing-images/{id}` çağırın. Çağrılmasa da sorun olmaz: 24 saat içinde bir ilana eklenmeyen görseller otomatik silinir.
+- Kullanıcı formdan bir görseli kaldırırsa (ilan henüz kaydedilmediyse) `DELETE /api/listing-images/{id}` çağırın. Çağrılmasa da sorun olmaz: 24 saat içinde bir ilana eklenmeyen görseller saatlik temizlikte otomatik silinir.
+- Silinen görselin (DELETE, ilandan çıkarma, ilan silme) dosyası birkaç saniye içinde depodan da silinir; eski URL'si `404` döner. Önbellekteki eski URL'leri göstermeye çalışmayın.
 - Bu yüzden form uzun süre açık kalıp ertesi gün kaydedilirse `IMAGE_NOT_AVAILABLE` gelebilir; kullanıcıdan görselleri yeniden yüklemesini isteyin.
 - **Küçültme ve gizlilik (frontend'in sorumluluğu):** telefon fotoğrafları büyüktür ve içlerinde EXIF bilgisi (çoğu zaman **GPS konumu**) bulunur. Yüklemeden önce görseli tarayıcıda canvas ile uzun kenarı en fazla 2048 px olacak şekilde küçültüp `image/webp` (desteklenmiyorsa `image/jpeg`, kalite ~0.85) olarak yeniden kodlayın. Yeniden kodlanan dosyada EXIF kalmaz. Sunucu görseli işlemez.
 
