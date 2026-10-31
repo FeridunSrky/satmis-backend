@@ -4,9 +4,9 @@ Sahibinden tarzı araç ilanı platformu. Üniversite bitirme projesi, ama sekt�
 
 ## Yapı
 - Bu repo sadece backend'dir; Maven projesi repo kökündedir (`backend/` alt klasörü yok). Frontend (React + Vite) ayrı tutulacak, henüz yok.
-- Ana paket `com.satmis`, feature-based: `auth`, `user`, `listing`, `vehicle`, `catalog`, `favorite`, `security`, `mail`, `common`, `config`, `enums`
+- Ana paket `com.satmis`, feature-based: `auth`, `user`, `listing`, `vehicle`, `catalog`, `favorite`, `security`, `mail`, `storage`, `common`, `config`, `enums`
 - Feature içinde: entity, repository, service, controller, mapper paketin kökünde; istek/cevap record'ları `dto/` alt paketinde.
-- Durum: auth, user, catalog (salt okunur uçlar + seed) listing CRUD + arama, favoriler, e-posta doğrulama, şifre sıfırlama ve auth uçlarında rate limiting tamam. Görseller şimdilik sadece https URL listesi (dosya yükleme yok). İlan silme hard delete.
+- Durum: auth, user, catalog (salt okunur uçlar + seed) listing CRUD + arama, favoriler, e-posta doğrulama, şifre sıfırlama ve auth uçlarında rate limiting tamam. Görseller şimdilik sadece https URL listesi; dosya yükleme (Faz 2) yapılıyor, depolama katmanı hazır. İlan silme hard delete.
 - Listing yazma işlemleri `ListingService`, okuma işlemleri `ListingQueryService`'te. Liste uçları iki adımlı sorgu kullanır: önce Specification ile sayfanın id'leri, sonra join fetch ile satırlar. Sayfa başına sorgu sayısı sabittir (`ListingIT` bunu ölçer). Yeni liste ucu eklerken bu kalıbı koru.
 - Başka bir feature ilan listesi dönecekse kendi sorgusuyla sadece id sayfasını üretir ve `ListingQueryService.toSummaryPage` ile özetlere çevirir (favoriler böyle).
 - İlan detayı `ListingDetailAssembler` üzerinden kurulur (favori sayısı / favorilerimde mi bilgisi için).
@@ -15,7 +15,7 @@ Sahibinden tarzı araç ilanı platformu. Üniversite bitirme projesi, ama sekt�
 - Sıralama Türkçe `Collator` ile Java tarafında yapılır (DB collation'ına güvenilmez).
 
 ## Teknoloji
-Java 21, Spring Boot 4.1.x (Spring Framework 7, Spring Security 7, Hibernate 7, Jackson 3 `tools.jackson.*`), Maven, PostgreSQL, Spring Data JPA, Spring Security + JWT (jjwt 0.12.x), Lombok, MapStruct, Bean Validation, springdoc-openapi (Swagger UI), Testcontainers
+Java 21, Spring Boot 4.1.x (Spring Framework 7, Spring Security 7, Hibernate 7, Jackson 3 `tools.jackson.*`), Maven, PostgreSQL, Spring Data JPA, Spring Security + JWT (jjwt 0.12.x), Lombok, MapStruct, Bean Validation, springdoc-openapi (Swagger UI), AWS SDK v2 S3 (JDK HTTP client'ı ile; Netty/Apache hariç), Testcontainers
 
 Boot 4 notları:
 - Jackson 3 paketleri `tools.jackson.*`; `@JsonInclude` gibi annotation'lar hâlâ `com.fasterxml.jackson.annotation`. JSON yazmak için Spring'in `JsonMapper` bean'i enjekte edilir.
@@ -52,8 +52,8 @@ Boot 4 notları:
 
 ## Profiller
 - `application.properties` ortak ve güvenli varsayılanları tutar (SQL logu ve Swagger kapalı, datasource yok). Profil seçilmezse uygulama açılmaz.
-- `dev`: lokal makine. `.env`'de `SPRING_PROFILES_ACTIVE=dev`; SQL logu ve Swagger açık, DB adresi/kullanıcısı varsayılanlı, `DB_PASSWORD` zorunlu.
-- `prod`: sunucu. `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS` zorunlu ve varsayılansız; Swagger kapalı (`SWAGGER_ENABLED=true` ile açılır, açıkken herkese açıktır).
+- `dev`: lokal makine. `.env`'de `SPRING_PROFILES_ACTIVE=dev`; SQL logu ve Swagger açık, DB adresi/kullanıcısı varsayılanlı, `DB_PASSWORD`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` zorunlu (değerleri `.env.example`'da).
+- `prod`: sunucu. `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, mail (`MAIL_*`, `FRONTEND_BASE_URL`) ve depolama (`STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_PUBLIC_BASE_URL`) zorunlu ve varsayılansız; Swagger kapalı (`SWAGGER_ENABLED=true` ile açılır, açıkken herkese açıktır).
 - `test`: tüm `@SpringBootTest` sınıfları `@ActiveProfiles("test")` taşır; yoksa lokaldeki `.env` testleri `dev`'e sokar. DB'yi Testcontainers verir.
 - `.env` içindeki `SPRING_PROFILES_ACTIVE` anahtarını Spring kendisi okumaz; `application.properties`'teki `spring.profiles.active=${SPRING_PROFILES_ACTIVE:}` eşlemesi bunu sağlar.
 - Docker imajı (`Dockerfile`, çok aşamalı, root olmayan `spring` kullanıcısı) varsayılan olarak `prod` profilinde açılır; prod değişkenleri `docker run -e ...` ile verilir. İmaj build'inde testler çalışmaz (Testcontainers build içinde DB açamaz), testler CI'da koşar. `.env` `.dockerignore` ile imaja girmez.
@@ -67,6 +67,7 @@ Boot 4 notları:
 - E-posta doğrulama: kayıtta `EmailVerificationService.issueFor` token üretir (DB'de SHA-256, 24 saat, kullanıcı başına sadece en yenisi geçerli). Mail commit'ten sonra `EmailVerificationMailListener` ile gider; mail hatası isteği bozmaz, kullanıcı `POST /api/users/me/email-verification` ile yeniden ister. Doğrulanmamış kullanıcı ilan veremez (`422 EMAIL_NOT_VERIFIED`). Token üretme/hash'leme `SecureTokens`'ta.
 - Şifre sıfırlama: `PasswordResetService`. `forgot-password` kayıtlı olmayan e-postada da aynı `204`'ü döner (hesap varlığı sızmaz); token 1 saat, tek kullanımlık. Başarılı sıfırlama tüm refresh token'ları iptal eder ve e-postayı doğrulanmış sayar.
 - Mail listener'ları `@Async` + `@TransactionalEventListener`: commit'ten sonra, istek thread'i dışında gönderilir (SMTP gecikmesi cevaba yansımaz; forgot-password'da zamanlamadan hesap varlığı anlaşılmasın diye de gerekli).
+- Dosya depolama sadece `storage.ObjectStorage` üzerinden (adapter; SDK tipleri/hataları dışarı sızmaz, hata `StorageException`). S3 API'si: prod'da Cloudflare R2, dev'de docker-compose'daki SeaweedFS (`docker compose up -d seaweedfs seaweedfs-init`, okuma `http://localhost:8333/satmis-images/<key>`). MinIO kullanılmıyor: hazır imajı artık yayınlanmıyor. Yükleme tarayıcıdan imzalı PUT URL'si ile yapılır; tür, boyut ve `Cache-Control` imzadadır, farklı dosyayı depolama `403` ile reddeder. Bucket herkese okunur, yazma ve listeleme anahtar ister (`docker/seaweedfs/s3.json`, sadece lokal anahtarlar). Zaman aşımı ve retry `StorageConfig`'te; client tembel bağlanır, depolama kapalıyken uygulama açılır.
 - Mail gönderimi sadece `mail.MailService` üzerinden (adapter; alıcı adresi loglanmaz). Dev'de Mailpit (`docker compose up -d mailpit`, UI `http://localhost:8025`), prod'da SMTP sağlayıcı (`MAIL_*` değişkenleri). SMTP zaman aşımları `application.properties`'te.
 - Telefon kayıt ve profilde zorunlu. Satıcı telefonu sadece ilan detayında ve sadece giriş yapmış kullanıcıya döner (anonimde `null`); liste uçları telefon içermez, e-posta hiç dönmez.
 - Kullanıcı yalnızca kendi kaydını değiştirebilir (sahiplik kontrolü Service'te yapılır; kullanıcı id'si URL'den değil token'dan alınır).
@@ -75,7 +76,7 @@ Boot 4 notları:
 ## Test
 - Birim testleri `*Test(s)` → surefire; entegrasyon testleri `*IT` → failsafe (`./mvnw verify`). Docker açık olmalı.
 - Entegrasyon testleri Testcontainers + `@ServiceConnection` ile gerçek PostgreSQL 16 kullanır; JWT secret `TestJwtSecret.random()` ile `@DynamicPropertySource` üzerinden verilir.
-- `application-test.properties` (test kaynaklarında) rate limiting ve mail gönderimini kapatır. İlan oluşturan testler kullanıcıyı JDBC ile doğrulanmış yapar. `EmailVerificationIT` ve `PasswordResetIT` gerçek Mailpit container'ı açıp maili HTTP API'sinden okur (`MailpitInbox` yardımcı sınıfı).
+- `application-test.properties` (test kaynaklarında) rate limiting ve mail gönderimini kapatır. İlan oluşturan testler kullanıcıyı JDBC ile doğrulanmış yapar. `EmailVerificationIT` ve `PasswordResetIT` gerçek Mailpit container'ı açıp maili HTTP API'sinden okur (`MailpitInbox` yardımcı sınıfı). Depolamaya dokunan IT'ler `SeaweedFsContainer` açar (compose ile aynı imaj ve `s3.json`, bucket'ı kendisi oluşturur) ve `registerStorageProperties` ile bağlanır; diğer testler depolamaya gitmez.
 - Frontend sözleşmesindeki değişiklikler (yeni uç, hata kodu, alan) `docs/frontend-api.md`'ye de yazılır.
 - Test adı: `method_condition_expectedResult`. Testi geçirmek için test zayıflatılmaz.
 - CI: `.github/workflows/ci.yml`, `main`'e push ve PR'larda `./mvnw clean verify` ve ardından Docker imaj build'i (push etmez). Hata olursa test raporları artifact olarak yüklenir.

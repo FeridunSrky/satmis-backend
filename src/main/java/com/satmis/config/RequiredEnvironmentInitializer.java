@@ -13,9 +13,11 @@ import java.util.Map;
 public class RequiredEnvironmentInitializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
 
     private static final Map<String, List<String>> REQUIRED_BY_PROFILE = Map.of(
-            "dev", List.of("JWT_SECRET", "DB_PASSWORD"),
+            "dev", List.of("JWT_SECRET", "DB_PASSWORD", "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY"),
             "prod", List.of("JWT_SECRET", "DB_URL", "DB_USERNAME", "DB_PASSWORD", "CORS_ALLOWED_ORIGINS",
-                    "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL"));
+                    "MAIL_HOST", "MAIL_USERNAME", "MAIL_PASSWORD", "MAIL_FROM", "FRONTEND_BASE_URL",
+                    "STORAGE_ENDPOINT", "STORAGE_BUCKET", "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY",
+                    "STORAGE_PUBLIC_BASE_URL"));
 
     @Override
     public void initialize(ConfigurableApplicationContext context) {

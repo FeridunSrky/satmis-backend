@@ -1,0 +1,18 @@
+{
+  "identities": [
+    {
+      "name": "satmis",
+      "credentials": [
+        {
+          "accessKey": "satmis-dev",
+          "secretKey": "satmis-dev-secret"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "anonymous",
+      "actions": ["Read:satmis-images"]
+    }
+  ]
+}
