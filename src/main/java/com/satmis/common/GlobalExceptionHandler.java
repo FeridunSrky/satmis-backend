@@ -3,6 +3,7 @@ package com.satmis.common;
 import com.satmis.storage.StorageException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -55,6 +56,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
                                                             HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "Geçersiz parametre: " + ex.getName(), request);
+    }
+
+    // Tomcat decodes the query string lazily, so a malformed one (e.g. ?q=%DD) fails inside the controller call
+    @ExceptionHandler(InvalidParameterException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidParameter(HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "İstek parametreleri okunamadı", request);
     }
 
     @ExceptionHandler(BadCredentialsException.class)
