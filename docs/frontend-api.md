@@ -107,6 +107,7 @@ Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Reques
 | `POST /api/auth/forgot-password` | 15 dakikada 5 |
 | `POST /api/auth/reset-password` | 15 dakikada 10 |
 | `POST /api/listing-images` | 10 dakikada 60 (yükleme URL'si isteği; dosyanın depoya PUT'u sayılmaz) |
+| `POST /api/listings/{id}/reports` | saatte 10 (tüm ilanlar için toplam) |
 
 Refresh interceptor'ı `429`'u oturum düşmesi gibi ele almamalı (kullanıcıyı çıkışa atmamalı); `Retry-After` kadar bekleyip tekrar denenebilir.
 
@@ -415,6 +416,31 @@ Diğer her geçiş 422 döner. `PENDING_APPROVAL` ve `REJECTED` durumlarından s
 - İlan silinirse favorisi de silinir.
 - Favori değişince ilgili detayın (`favoriteCount`, `favoritedByMe`) ve favoriler listesinin cache'i geçersiz kılınmalı.
 
+## İlan şikayeti
+
+| Metot | URL | Kimlik | Gövde | Cevap |
+|---|---|---|---|---|
+| POST | `/api/listings/{id}/reports` | giriş | `{ "reason": ReportReason, "description"?: string }` | 201 `ListingReport` |
+
+- Sadece giriş yapmış kullanıcı şikayet edebilir (token yoksa `401`). E-posta doğrulaması gerekmez.
+- `reason` zorunlu (`400`, `errors.reason`; bilinmeyen değer de `400`). `description` en fazla 1000 karakter, kırpılarak kaydedilir; `reason: "OTHER"` ise zorunlu (boşsa `400`, mesaj "\"Diğer\" seçildiğinde açıklama zorunludur").
+- Sadece herkese görünen ilan şikayet edilebilir; ilan yoksa ya da görünür değilse `404`.
+- Kendi ilanını şikayet etmek `422` "Kendi ilanınızı şikayet edemezsiniz". Butonu sahibine hiç göstermeyin (`seller.id` = giriş yapan kullanıcı).
+- Aynı ilanı daha önce şikayet ettiyseniz ve şikayet hâlâ inceleniyorsa `409` "Bu ilanı zaten şikayet ettiniz, inceleniyor". Bu bir hata değil, bilgilendirme olarak gösterilebilir. Şikayet sonuçlandıktan sonra tekrar şikayet edilebilir.
+- Kullanıcı kendi şikayetlerini listeleyemez; şikayet sonucu kullanıcıya bildirilmez.
+- Sınır: IP başına saatte 10 şikayet (`429`, bkz. "İstek sınırı").
+
+```ts
+interface ListingReport {
+  id: number;
+  listingId: number;
+  reason: ReportReason;
+  description: string | null;
+  status: ReportStatus;   // yeni şikayette her zaman "OPEN"
+  createdAt: string;      // ISO-8601 UTC
+}
+```
+
 ## Yönetim (admin)
 
 Bu uçlar sadece `role: "ADMIN"` olan kullanıcılara açıktır: token yoksa `401`, kullanıcı admin değilse `403`. Frontend admin menüsünü `GET /api/users/me` cevabındaki `role` alanına göre gösterir (bu sadece görünüm kararıdır, yetkiyi backend kontrol eder). Rol istemciden hiçbir zaman alınmaz; ilk admin sunucu yapılandırmasıyla (`APP_ADMIN_EMAILS`) atanır.
@@ -473,6 +499,43 @@ interface AdminUser {
 - Aynı ebeveyn altında aynı isim (büyük/küçük harf farkı gözetilmeden, Türkçe kurallarla: `bmw` = `BMW`, `şahin` = `ŞAHİN`) `409` döner. Aynı seri adı farklı modellerde olabilir.
 - Ebeveyn marka/model yoksa `404`.
 
+### Şikayetler
+
+Şikayetler ilan bazında ele alınır: admin bir ilan için karar verir ve o ilanın tüm açık şikayetleri birlikte kapanır.
+
+| Metot | URL | Gövde | Cevap |
+|---|---|---|---|
+| GET | `/api/admin/reports?page=&size=` | | `PageResponse<ReportedListing>`. Sadece açık şikayeti olan ilanlar; en çok şikayet alan başta, eşitse son şikayeti en yeni olan |
+| GET | `/api/admin/reports/listings/{listingId}?page=&size=` | | `PageResponse<AdminListingReport>`. İlanın tüm şikayetleri (sonuçlananlar dahil), en yeni başta. İlan yoksa boş sayfa |
+| POST | `/api/admin/reports/listings/{listingId}/dismiss` | | 204. Açık şikayetleri `DISMISSED` yapar; ilan değişmez |
+| POST | `/api/admin/reports/listings/{listingId}/take-down` | `{ "version": number, "reason": string }` | `ListingDetail` (`REJECTED`). İlanı reddeder ve açık şikayetleri `ACTION_TAKEN` yapar |
+
+- İlanın detayı için mevcut `GET /api/admin/listings/{id}` kullanılır (her durumda açılır, `version` oradan alınır).
+- `take-down` "İlan onayı"ndaki red ile aynıdır: sahibi `rejectionReason`'ı görür, ilanı düzenlerse tekrar onaya düşer. Gövde kuralları da aynı (`reason` zorunlu, en fazla 500; eski `version` → `409`). Sadece `PENDING_APPROVAL` veya `ACTIVE` ilan kaldırılabilir; sahibi ilanı pasife aldıysa ya da satıldı yaptıysa `422` döner, bu durumda şikayetler `dismiss` ile kapatılabilir.
+- Açık şikayeti olmayan ilanda `dismiss` ve `take-down` `422` "Bu ilan için açık şikayet yok" döner.
+- `409` gelirse şikayetler açık kalır; detayı yeniden çekip tekrar karar verin.
+- Kuyruktaki `listing.status` ilanın şu anki durumunu gösterir (ör. sahibi engelliyse ya da ilan pasifse yine listelenir).
+
+```ts
+interface ReportedListing {
+  listing: ListingSummary;
+  openReportCount: number;
+  reasons: Partial<Record<ReportReason, number>>;  // açık şikayetlerin nedenlere göre dağılımı
+  firstReportedAt: string;
+  lastReportedAt: string;
+}
+
+interface AdminListingReport {
+  id: number;
+  reason: ReportReason;
+  description: string | null;
+  status: ReportStatus;
+  reporter: { id: number; firstName: string; lastName: string; email: string };
+  createdAt: string;
+  resolvedAt: string | null;
+}
+```
+
 ## Enum değerleri ve önerilen Türkçe etiketler
 
 | Enum | Değer → etiket |
@@ -485,13 +548,14 @@ interface AdminUser {
 | `Traction` | `FWD` Önden çekiş · `RWD` Arkadan itiş · `AWD` 4x4 |
 | `VehicleCondition` | `NEW` Sıfır · `USED` İkinci el |
 | `FromWho` | `OWNER` Sahibinden · `GALLERY` Galeriden · `AUTHORIZED_DEALER` Yetkili bayiden |
+| `ReportReason` | `FAKE_OR_MISLEADING` Sahte veya yanıltıcı ilan · `FRAUD_SUSPECTED` Dolandırıcılık şüphesi · `WRONG_INFO` Yanlış bilgi (fiyat, km vb.) · `INAPPROPRIATE_CONTENT` Uygunsuz içerik · `ALREADY_SOLD` Araç satılmış · `OTHER` Diğer |
+| `ReportStatus` | `OPEN` İnceleniyor · `DISMISSED` Reddedildi (işlem yapılmadı) · `ACTION_TAKEN` İlan kaldırıldı |
 
 ## Bilinen kısıtlar
 
 - Görseller sunucuda yeniden boyutlandırılmaz ve küçük önizleme (thumbnail) üretilmez; küçültme ve EXIF temizliği frontend'de yapılır.
-- Kelimeyle arama (`q`) yok.
 - Fiyat filtresi kur çevirmez.
 - Satıcıyla iletişim sadece telefonla (mesajlaşma yok); e-posta hiç paylaşılmaz.
-- Admin uçları (ilan onayı, katalog yönetimi) yok.
+- Katalogda adlandırma ve silme yok (sadece ekleme).
 
 Backend tarafında uyumsuzluk veya eksik bulunursa backend reposunda düzeltilir; frontend sözleşmeyi kendi tarafında değiştirmemeli.
