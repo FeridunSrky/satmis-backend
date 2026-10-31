@@ -5,12 +5,9 @@ import com.satmis.catalog.DistrictRepository;
 import com.satmis.catalog.VehicleSeries;
 import com.satmis.catalog.VehicleSeriesRepository;
 import com.satmis.common.ApiException;
-import com.satmis.common.ErrorCode;
 import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingRequest;
-import com.satmis.user.User;
-import com.satmis.user.UserRepository;
 import com.satmis.vehicle.VehicleDetail;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -18,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -34,17 +30,21 @@ public class ListingService {
     private final ListingRepository listingRepository;
     private final DistrictRepository districtRepository;
     private final VehicleSeriesRepository vehicleSeriesRepository;
-    private final UserRepository userRepository;
+    private final ListingOwnerPolicy listingOwnerPolicy;
     private final ListingMapper listingMapper;
     private final ListingDetailAssembler listingDetailAssembler;
+    private final ListingImageService listingImageService;
 
     @Transactional
     public ListingDetailResponse create(Long ownerId, ListingRequest request) {
         Listing listing = new Listing();
-        listing.setOwner(findOwnerAllowedToList(ownerId));
+        listing.setOwner(listingOwnerPolicy.requireAllowedToList(ownerId));
         listing.setVehicleDetail(new VehicleDetail());
         applyRequest(listing, request);
-        return listingDetailAssembler.assemble(listingRepository.save(listing), ownerId);
+        // Images point at the listing, so it needs its id first
+        Listing saved = listingRepository.save(listing);
+        listingImageService.replaceListingImages(saved, request.imageIds());
+        return listingDetailAssembler.assemble(saved, ownerId);
     }
 
     @Transactional
@@ -58,6 +58,7 @@ public class ListingService {
         }
         listingRepository.forceVersionIncrement(listing);
         applyRequest(listing, request);
+        listingImageService.replaceListingImages(listing, request.imageIds());
         // Flush so the response carries the version the client must send next time
         listingRepository.flush();
         return listingDetailAssembler.assemble(listing, userId);
@@ -76,7 +77,9 @@ public class ListingService {
 
     @Transactional
     public void delete(Long listingId, Long userId) {
-        listingRepository.delete(findOwnedListing(listingId, userId));
+        Listing listing = findOwnedListing(listingId, userId);
+        listingImageService.releaseImages(listing);
+        listingRepository.delete(listing);
     }
 
     private void applyRequest(Listing listing, ListingRequest request) {
@@ -86,35 +89,6 @@ public class ListingService {
         VehicleDetail vehicleDetail = listing.getVehicleDetail();
         listingMapper.updateVehicleDetail(request.vehicle(), vehicleDetail);
         vehicleDetail.setSeries(findSeries(request.vehicle().seriesId()));
-
-        replaceImages(listing, request.imageUrls());
-    }
-
-    // First image is the cover; list order becomes display order
-    private static void replaceImages(Listing listing, List<String> imageUrls) {
-        listing.getImages().clear();
-        for (int index = 0; index < imageUrls.size(); index++) {
-            ListingImage image = new ListingImage();
-            image.setUrl(imageUrls.get(index));
-            image.setDisplayOrder(index);
-            image.setCover(index == 0);
-            listing.addImage(image);
-        }
-    }
-
-    // Buyers reach sellers by phone, so a listing without a contact number is useless
-    private User findOwnerAllowedToList(Long ownerId) {
-        User owner = userRepository.findById(ownerId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Kullanıcı bulunamadı"));
-        if (!owner.isEmailVerified()) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.EMAIL_NOT_VERIFIED,
-                    "İlan vermek için e-posta adresinizi doğrulayın");
-        }
-        if (owner.getPhone() == null || owner.getPhone().isBlank()) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.PHONE_REQUIRED,
-                    "İlan vermek için profilinize telefon numarası ekleyin");
-        }
-        return owner;
     }
 
     private Listing findOwnedListing(Long listingId, Long userId) {

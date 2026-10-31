@@ -1,6 +1,7 @@
 package com.satmis.favorite;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.TestImages;
 import com.satmis.TestJwtSecret;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -151,10 +152,15 @@ class FavoriteIT {
         Map<String, Object> body = Map.of(
                 "title", "Favori testi ilanı", "price", 500_000, "currency", "TRY",
                 "districtId", lookupId("select id from districts order by id limit 1"),
-                "vehicle", vehicle, "imageUrls", List.of("https://cdn.satmis.com/fav.jpg"));
+                "vehicle", vehicle, "imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(token))));
         String response = perform(post("/api/listings"), token, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
+        return JsonPath.<Number>read(response, "$.id").longValue();
+    }
+
+    private long userId(String token) throws Exception {
+        String response = perform(get("/api/users/me"), token, null).andReturn().getResponse().getContentAsString();
         return JsonPath.<Number>read(response, "$.id").longValue();
     }
 

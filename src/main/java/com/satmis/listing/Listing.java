@@ -77,7 +77,8 @@ public class Listing extends AuditableEntity {
             fetch = FetchType.LAZY, optional = false)
     private VehicleDetail vehicleDetail;
 
-    @OneToMany(mappedBy = "listing", cascade = CascadeType.ALL, orphanRemoval = true)
+    // No cascade or orphan removal: images outlive the listing as DELETED rows until their stored file is removed
+    @OneToMany(mappedBy = "listing")
     @OrderBy("displayOrder ASC")
     @BatchSize(size = 20)
     private List<ListingImage> images = new ArrayList<>();
@@ -87,15 +88,5 @@ public class Listing extends AuditableEntity {
         if (vehicleDetail != null) {
             vehicleDetail.setListing(this);
         }
-    }
-
-    public void addImage(ListingImage image) {
-        images.add(image);
-        image.setListing(this);
-    }
-
-    public void removeImage(ListingImage image) {
-        images.remove(image);
-        image.setListing(null);
     }
 }

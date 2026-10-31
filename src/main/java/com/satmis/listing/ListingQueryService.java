@@ -7,6 +7,7 @@ import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingPageRequest;
 import com.satmis.listing.dto.ListingSearchCriteria;
 import com.satmis.listing.dto.ListingSummaryResponse;
+import com.satmis.storage.ObjectStorage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ public class ListingQueryService {
 
     private final ListingRepository listingRepository;
     private final ListingImageRepository listingImageRepository;
+    private final ObjectStorage objectStorage;
     private final ListingMapper listingMapper;
     private final ListingDetailAssembler listingDetailAssembler;
 
@@ -65,7 +67,8 @@ public class ListingQueryService {
         Map<Long, Listing> listingsById = listingRepository.findSummariesByIdIn(ids).stream()
                 .collect(Collectors.toMap(Listing::getId, Function.identity()));
         Map<Long, String> coverUrlsById = listingImageRepository.findCoverImages(ids).stream()
-                .collect(Collectors.toMap(CoverImageView::listingId, CoverImageView::url, (first, second) -> first));
+                .collect(Collectors.toMap(CoverImageView::listingId, cover -> objectStorage.publicUrl(cover.objectKey()),
+                        (first, second) -> first));
 
         // Keeps the id query's order; skips rows deleted between the two queries
         List<ListingSummaryResponse> content = ids.stream()

@@ -1,5 +1,6 @@
 package com.satmis.common;
 
+import com.satmis.storage.StorageException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -81,6 +82,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrity(HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "Kayıt çakışması: bu veri zaten mevcut", request);
+    }
+
+    // Storage is down or timed out; the client may retry, so this is not reported as the client's fault
+    @ExceptionHandler(StorageException.class)
+    public ResponseEntity<ErrorResponse> handleStorage(StorageException ex, HttpServletRequest request) {
+        log.error("Object storage call failed on {} {}", request.getMethod(), request.getRequestURI(), ex);
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "Görsel deposuna şu an ulaşılamıyor, lütfen tekrar deneyin", request);
     }
 
     // Spring MVC exceptions (404, 405, 415...) carry their own status; anything else is a 500

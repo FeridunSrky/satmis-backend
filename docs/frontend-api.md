@@ -1,18 +1,19 @@
 # satmis.com — Frontend API devir notu
 
-Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama, şifre sıfırlama, istek sınırı ve refresh token cookie'si (bkz. "E-posta doğrulama", "Şifre sıfırlama", "İstek sınırı (429)", "Refresh token cookie'si").
+Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, favori) anlatır. Auth ve profil uçlarındaki değişiklikler: telefon numarası (bkz. "Telefon numarası ve satıcı iletişimi"), e-posta doğrulama, şifre sıfırlama, istek sınırı ve refresh token cookie'si (bkz. "E-posta doğrulama", "Şifre sıfırlama", "İstek sınırı (429)", "Refresh token cookie'si"). İlan görselleri artık dosya olarak yüklenir (bkz. "İlan görselleri (dosya yükleme)"); ilan gövdesindeki `imageUrls` kaldırıldı, yerine `imageIds` geldi.
 
 - **Tek doğruluk kaynağı OpenAPI'dir:** backend çalışırken `http://localhost:8080/v3/api-docs` (Swagger UI: `/swagger-ui.html`). TypeScript tiplerini oradan üretmek önerilir (openapi-typescript / orval). Bu nottaki tipler elle yazılmıştır ve kuralları açıklamak içindir.
 - Geliştirmede istekler Vite proxy üzerinden gider (`/api` → `http://localhost:8080`), CORS gerekmez.
-- Backend'i başlatmak için proje kökünde `.env` olmalı (`.env.example`'dan kopyala: `SPRING_PROFILES_ACTIVE=dev`, `JWT_SECRET`, `DB_PASSWORD`): `.\mvnw.cmd spring-boot:run`.
+- Backend'i başlatmak için proje kökünde `.env` olmalı (`.env.example`'dan kopyala: `SPRING_PROFILES_ACTIVE=dev`, `JWT_SECRET`, `DB_PASSWORD`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`): `.\mvnw.cmd spring-boot:run`.
 - E-postalar geliştirmede Mailpit'e gider: `docker compose up -d mailpit`, gelen kutusu `http://localhost:8025`.
+- Görsel dosyaları geliştirmede SeaweedFS'e gider (S3 uyumlu depo, prod'da Cloudflare R2): `docker compose up -d seaweedfs seaweedfs-init`. Görseller `http://localhost:8333/satmis-images/...` adresinden herkese açık okunur.
 
 ## Genel kurallar
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`); diğer hatalarda alan hiç yoktur. |
-| Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel adresi hataları tek anahtar altında döner (`imageUrls`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`, `IMAGE_LIMIT_REACHED`, `IMAGE_NOT_UPLOADED`, `IMAGE_INVALID`, `IMAGE_NOT_AVAILABLE`); diğer hatalarda alan hiç yoktur. |
+| Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel listesi hataları tek anahtar altında döner (`imageIds`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
 | Enum'lar | Büyük harf İngilizce değerler. Türkçe etiketler frontend'in işi (öneri tablosu aşağıda). |
@@ -141,6 +142,69 @@ interface CatalogItem { id: number; name: string; }
 - Listeler sayfalı değildir (dropdown verisi, küçük) ve **Türkçe alfabeye göre sıralı** gelir; frontend yeniden sıralamamalı.
 - Hiyerarşi: marka → model → seri (seri = motor seçeneği, örn. Clio → `1.0 TCe`); il → ilçe.
 - Veri nadiren değişir; TanStack Query'de uzun `staleTime` uygundur.
+
+## İlan görselleri (dosya yükleme)
+
+Dosya backend'den geçmez: tarayıcı onu **doğrudan depoya** (dev'de SeaweedFS, prod'da Cloudflare R2) backend'in verdiği kısa ömürlü, imzalı bir URL ile yükler. Her görsel için akış:
+
+```
+1. POST /api/listing-images  { contentType, sizeBytes }   → 201 { id, uploadUrl, uploadHeaders, expiresAt }
+2. PUT uploadUrl  (gövde: dosyanın kendisi, header: uploadHeaders)   → depodan 200
+3. POST /api/listing-images/{id}/complete                  → 200 { id, url }
+4. İlanı kaydederken id'leri imageIds içinde gönder
+```
+
+| Metot | URL | Kimlik | Başarılı cevap |
+|---|---|---|---|
+| POST | `/api/listing-images` | giriş | 201 `ImageUpload` |
+| POST | `/api/listing-images/{id}/complete` | sahibi | 200 `UploadedImage` (tekrar çağrılabilir, aynı cevabı döner) |
+| DELETE | `/api/listing-images/{id}` | sahibi | 204 (tekrar çağrılabilir) |
+
+```ts
+interface ImageUploadRequest {
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp'; // yüklenecek dosyanın türü (Blob.type)
+  sizeBytes: number;                                     // yüklenecek dosyanın tam boyutu (Blob.size), en fazla 10 MB
+}
+
+interface ImageUpload {
+  id: number;
+  uploadUrl: string;                        // depo adresi; API'nin değil (dev: http://localhost:8333/...)
+  uploadHeaders: Record<string, string>;    // PUT isteğine AYNEN eklenmeli (şu an content-type ve cache-control)
+  expiresAt: string;                        // ISO-8601; URL 10 dakika geçerli
+}
+
+interface UploadedImage {
+  id: number;
+  url: string;                              // herkese açık görsel adresi; önizlemede kullanılabilir
+}
+```
+
+**PUT isteği için kurallar (önemli):**
+
+- `uploadUrl`'e `PUT` atılır; gövde dosyanın kendisidir (`Blob`/`File`), **`FormData` değil**.
+- `uploadHeaders` içindeki header'lar **değiştirilmeden** eklenir. Başka header ekleme: özellikle **`Authorization` gönderilmez**. API'nin axios örneği ve interceptor'ları bu istek için kullanılmamalı; düz `fetch` (ya da interceptor'sız ayrı bir istemci) kullanın, `credentials` göndermeyin.
+- İmza tür ve **boyutu** kapsar: `sizeBytes` olarak bildirilen sayı gönderilen dosyanın boyutuyla birebir aynı olmalı. Dosyayı küçültecekseniz **önce küçültün**, sonra küçültülmüş dosyanın `size` ve `type` değeriyle 1. adımı çağırın.
+- Boyut, tür ya da header farklıysa depo `403` döner (gövdesi XML'dir, API hata formatında değildir). URL süresi dolduysa da `403` döner: 1. adımdan yeniden başlayın.
+- Geliştirmede depo farklı bir origin'dedir (`localhost:8333`); CORS izinlidir. Prod'da bucket CORS'u frontend domain'ine göre ayarlanacak.
+
+**Hata durumları:**
+
+| Durum | Uç | Ne zaman | Önerilen davranış |
+|---|---|---|---|
+| 400 | POST | Desteklenmeyen tür (sadece JPEG, PNG, WEBP) ya da 10 MB üstü; alan eksikse `errors` dolu | `message`'ı göster |
+| 422 + `EMAIL_NOT_VERIFIED` / `PHONE_REQUIRED` | POST | İlan veremeyen kullanıcı (ilan oluşturmayla aynı kural) | İlan formundaki davranışın aynısı |
+| 422 + `IMAGE_LIMIT_REACHED` | POST | Kullanıcının henüz bir ilana eklenmemiş 40 görseli var | `message`'ı göster; kullanılmayan görselleri `DELETE` ile silmeyi öner |
+| 422 + `IMAGE_NOT_UPLOADED` | complete | Dosya depoda yok (PUT yapılmamış ya da başarısız) | PUT'u tekrar deneyin (URL hâlâ geçerliyse), sonra complete'i tekrar çağırın |
+| 422 + `IMAGE_INVALID` | complete | Dosyanın içeriği bildirilen türde değil ya da boyutu farklı. Dosya silinir, bu id artık kullanılamaz | "Dosya geçerli bir görsel değil" göster; kullanıcı başka dosya seçsin |
+| 404 | complete / DELETE | Görsel yok, silinmiş ya da başkasının | Görseli formdan çıkar |
+| 409 | DELETE | Görsel bir ilana eklenmiş | İlanı PUT ile güncelleyerek listeden çıkarın |
+| 503 | herhangi | Depoya ulaşılamıyor | "Tekrar deneyin" göster |
+
+**Davranış notları:**
+
+- Kullanıcı formdan bir görseli kaldırırsa (ilan henüz kaydedilmediyse) `DELETE /api/listing-images/{id}` çağırın. Çağrılmasa da sorun olmaz: 24 saat içinde bir ilana eklenmeyen görseller otomatik silinir.
+- Bu yüzden form uzun süre açık kalıp ertesi gün kaydedilirse `IMAGE_NOT_AVAILABLE` gelebilir; kullanıcıdan görselleri yeniden yüklemesini isteyin.
+- **Küçültme ve gizlilik (frontend'in sorumluluğu):** telefon fotoğrafları büyüktür ve içlerinde EXIF bilgisi (çoğu zaman **GPS konumu**) bulunur. Yüklemeden önce görseli tarayıcıda canvas ile uzun kenarı en fazla 2048 px olacak şekilde küçültüp `image/webp` (desteklenmiyorsa `image/jpeg`, kalite ~0.85) olarak yeniden kodlayın. Yeniden kodlanan dosyada EXIF kalmaz. Sunucu görseli işlemez.
 
 ## İlanlar
 
@@ -272,11 +336,13 @@ interface ListingRequest {
     hasDamageRecord: boolean;
     exchangeable: boolean;
   };
-  imageUrls: string[];            // 1–20 adet, her biri https:// ile başlar, en fazla 500 karakter
+  imageIds: number[];             // 1–20 adet, tekrarsız; "İlan görselleri" akışından gelen id'ler
 }
 ```
 
-- **Görseller:** Şimdilik dosya yükleme yok; görseller `https://` URL listesi olarak gönderilir. Listedeki sıra gösterim sırasıdır, **ilk görsel kapak** olur. PUT görsel listesini tamamen değiştirir.
+- **Görseller:** Önce her dosya yüklenir (bkz. "İlan görselleri (dosya yükleme)"), sonra id'leri `imageIds` ile gönderilir. Listedeki sıra gösterim sırasıdır, **ilk görsel kapak** olur. Her id ya kullanıcının yüklemesi tamamlanmış ve henüz ilana eklenmemiş bir görseli ya da (PUT'ta) **bu ilanın** mevcut bir görseli olmalı.
+- **PUT görsel listesini tamamen değiştirir:** mevcut görselleri korumak için detaydaki `images[].id` değerlerini de listeye koyun. Listede olmayan mevcut görseller ilandan **kalıcı olarak** çıkar ve bir daha kullanılamaz. Sıralamayı ve kapağı değiştirmek için sadece listedeki sırayı değiştirin.
+- Eski `imageUrls` alanı **kaldırıldı**: gönderilirse yok sayılır ve `imageIds` eksik olduğu için `400` (`errors.imageIds`) döner.
 - **Marka/model** gönderilmez; sadece `seriesId` gönderilir, marka ve model ondan türetilir. Formda marka → model → seri seçimi kademeli dropdown olarak kurulabilir.
 - PUT tam güncellemedir (PATCH değil): formdaki tüm alanlar gönderilmeli.
 
@@ -292,6 +358,7 @@ interface ListingRequest {
 | 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi | `message`'ı göster |
 | 422 + `code: "PHONE_REQUIRED"` | Profilde telefon yokken ilan verme | Profil sayfasına yönlendir |
 | 422 + `code: "EMAIL_NOT_VERIFIED"` | E-posta doğrulanmamışken ilan verme | "E-postanı doğrula" uyarısı + tekrar gönder butonu |
+| 422 + `code: "IMAGE_NOT_AVAILABLE"` | `imageIds` içinde başkasının, başka bir ilanın, yüklemesi tamamlanmamış ya da silinmiş bir görsel var | `message`'ı göster; görselleri yeniden yükletin (form durumu bayatlamış olabilir) |
 
 ### Durum geçişleri (`PATCH /api/listings/{id}/status`, gövde `{ "status": "PASSIVE" }`)
 
@@ -337,7 +404,7 @@ Diğer her geçiş (PENDING_APPROVAL dahil) 422 döner. Yeni ilanlar şu an doğ
 
 ## Bilinen kısıtlar
 
-- Gerçek görsel yükleme yok (sadece https URL).
+- Görseller sunucuda yeniden boyutlandırılmaz ve küçük önizleme (thumbnail) üretilmez; küçültme ve EXIF temizliği frontend'de yapılır.
 - Kelimeyle arama (`q`) yok.
 - Fiyat filtresi kur çevirmez.
 - Satıcıyla iletişim sadece telefonla (mesajlaşma yok); e-posta hiç paylaşılmaz.

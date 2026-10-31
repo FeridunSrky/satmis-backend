@@ -5,8 +5,10 @@ import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingRequest;
 import com.satmis.listing.dto.ListingSummaryResponse;
 import com.satmis.listing.dto.VehicleDetailRequest;
+import com.satmis.storage.ObjectStorage;
 import com.satmis.user.User;
 import com.satmis.vehicle.VehicleDetail;
+import org.mapstruct.Context;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
@@ -20,7 +22,7 @@ public interface ListingMapper {
     @Mapping(target = "location", source = "listing.district")
     @Mapping(target = "vehicle", source = "listing.vehicleDetail")
     ListingDetailResponse toDetail(Listing listing, long favoriteCount, boolean favoritedByMe,
-                                   boolean includeSellerPhone);
+                                   boolean includeSellerPhone, @Context ObjectStorage objectStorage);
 
     default ListingDetailResponse.Seller toSeller(User owner, boolean includePhone) {
         return new ListingDetailResponse.Seller(owner.getId(), owner.getFirstName(), owner.getLastName(),
@@ -41,7 +43,9 @@ public interface ListingMapper {
     @Mapping(target = "seriesName", source = "series.name")
     ListingDetailResponse.Vehicle toVehicle(VehicleDetail vehicleDetail);
 
-    ListingDetailResponse.Image toImage(ListingImage image);
+    // Only the storage key is persisted; the public address comes from configuration
+    @Mapping(target = "url", expression = "java(objectStorage.publicUrl(image.getObjectKey()))")
+    ListingDetailResponse.Image toImage(ListingImage image, @Context ObjectStorage objectStorage);
 
     @Mapping(target = "id", source = "listing.id")
     @Mapping(target = "cityName", source = "listing.district.city.name")

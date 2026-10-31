@@ -1,6 +1,7 @@
 package com.satmis.listing;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.TestImages;
 import com.satmis.TestJwtSecret;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
@@ -52,8 +53,6 @@ class ListingIT {
     private static final String LISTINGS = "/api/listings";
     private static final String PASSWORD = "Sifre1234";
     private static final String SELLER_PHONE = "+905321234567";
-    private static final String IMAGE_1 = "https://cdn.satmis.com/1.jpg";
-    private static final String IMAGE_2 = "https://cdn.satmis.com/2.jpg";
     private static final int MAX_QUERIES_PER_SEARCH_PAGE = 4;
 
     @Container
@@ -80,7 +79,8 @@ class ListingIT {
     @Test
     void create_validRequest_returns201WithDetail() throws Exception {
         String token = registerUser();
-        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
+        long coverImageId = imageIdsOf(body).getFirst();
 
         perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
@@ -91,22 +91,27 @@ class ListingIT {
                 .andExpect(jsonPath("$.vehicle.modelName").value("Clio"))
                 .andExpect(jsonPath("$.location.cityName").value("İstanbul"))
                 .andExpect(jsonPath("$.images", hasSize(2)))
-                .andExpect(jsonPath("$.images[0].url").value(IMAGE_1))
+                .andExpect(jsonPath("$.images[0].id").value(coverImageId))
+                .andExpect(jsonPath("$.images[0].url").value(publicUrlOf(coverImageId)))
                 .andExpect(jsonPath("$.images[0].cover").value(true))
                 .andExpect(jsonPath("$.images[1].cover").value(false));
+        assertThat(TestImages.statusOf(jdbcTemplate, coverImageId)).isEqualTo("ATTACHED");
     }
 
     @Test
     void getDetail_reloadedFromDatabase_returnsImagesInDisplayOrder() throws Exception {
+        String token = registerUser();
+        List<Long> imageIds = TestImages.uploaded(jdbcTemplate, userId(token), 2);
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
-        body.put("imageUrls", List.of(IMAGE_2, IMAGE_1));
-        long listingId = createListing(registerUser(), body);
+        body.put("imageIds", List.of(imageIds.get(1), imageIds.get(0)));
+        long listingId = createListing(token, body);
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.images[0].url").value(IMAGE_2))
+                .andExpect(jsonPath("$.images[0].id").value(imageIds.get(1)))
+                .andExpect(jsonPath("$.images[0].url").value(publicUrlOf(imageIds.get(1))))
                 .andExpect(jsonPath("$.images[0].cover").value(true))
-                .andExpect(jsonPath("$.images[1].url").value(IMAGE_1))
+                .andExpect(jsonPath("$.images[1].id").value(imageIds.get(0)))
                 .andExpect(jsonPath("$.updatedAt").isNotEmpty());
     }
 
@@ -115,22 +120,23 @@ class ListingIT {
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
         body.put("title", "");
         body.put("price", -5);
-        body.put("imageUrls", List.of("http://insecure.example/1.jpg"));
+        body.put("imageIds", List.of(1, 1));
         vehicleOf(body).put("modelYear", 1900);
 
         perform(post(LISTINGS), registerUser(), body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.title").isNotEmpty())
                 .andExpect(jsonPath("$.errors.price").isNotEmpty())
-                .andExpect(jsonPath("$.errors.imageUrls").isNotEmpty())
+                .andExpect(jsonPath("$.errors.imageIds").isNotEmpty())
                 .andExpect(jsonPath("$.errors['vehicle.modelYear']").isNotEmpty());
     }
 
     @Test
     void create_unknownSeries_returns422() throws Exception {
-        Map<String, Object> body = listingBody(Long.MAX_VALUE, district("İstanbul", "Kadıköy"));
+        String token = registerUser();
+        Map<String, Object> body = withImages(listingBody(Long.MAX_VALUE, district("İstanbul", "Kadıköy")), token);
 
-        perform(post(LISTINGS), registerUser(), body)
+        perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").doesNotExist());
     }
@@ -140,7 +146,7 @@ class ListingIT {
         String token = registerUser();
         long ownerId = userId(token);
         jdbcTemplate.update("update users set email_verified = false where id = ?", ownerId);
-        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
 
         perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
@@ -155,7 +161,7 @@ class ListingIT {
         String token = registerUser();
         long ownerId = userId(token);
         jdbcTemplate.update("update users set phone = null where id = ?", ownerId);
-        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
 
         perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
@@ -228,7 +234,7 @@ class ListingIT {
         long districtId = district("İzmir", "Karşıyaka");
         long listingId = createListing(registerUser(), seriesId, districtId);
         String stranger = registerUser();
-        Map<String, Object> body = listingBody(seriesId, districtId);
+        Map<String, Object> body = withImages(listingBody(seriesId, districtId), stranger);
         body.put("version", 0);
 
         perform(put(LISTINGS + "/{id}", listingId), stranger, body).andExpect(status().isForbidden());
@@ -237,30 +243,86 @@ class ListingIT {
     }
 
     @Test
+    void create_imageOfAnotherUser_returns422ImageNotAvailable() throws Exception {
+        String token = registerUser();
+        Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        body.put("imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(registerUser()))));
+
+        perform(post(LISTINGS), token, body)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("IMAGE_NOT_AVAILABLE"));
+        assertThat(jdbcTemplate.queryForObject("select count(*) from listings where user_id = ?", Integer.class,
+                userId(token))).isZero();
+    }
+
+    @Test
+    void create_imageAlreadyInAnotherListingOrNotCompleted_returns422() throws Exception {
+        String owner = registerUser();
+        long seriesId = series("Renault", "Clio", "1.0 TCe");
+        long districtId = district("İstanbul", "Kadıköy");
+        long usedImageId = imageIdsOfListing(createListing(owner, seriesId, districtId)).getFirst();
+        long pendingImageId = TestImages.uploaded(jdbcTemplate, userId(owner));
+        jdbcTemplate.update("update listing_images set status = 'PENDING' where id = ?", pendingImageId);
+
+        for (long imageId : List.of(usedImageId, pendingImageId)) {
+            Map<String, Object> body = listingBody(seriesId, districtId);
+            body.put("imageIds", List.of(imageId));
+            perform(post(LISTINGS), owner, body)
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("IMAGE_NOT_AVAILABLE"));
+        }
+    }
+
+    @Test
+    void update_reorderedImages_changesCoverAndKeepsBoth() throws Exception {
+        String owner = registerUser();
+        long seriesId = series("Toyota", "Corolla", "1.6");
+        long districtId = district("İzmir", "Karşıyaka");
+        long listingId = createListing(owner, seriesId, districtId);
+        List<Long> imageIds = imageIdsOfListing(listingId);
+
+        Map<String, Object> body = listingBody(seriesId, districtId);
+        body.put("version", currentVersion(listingId));
+        body.put("imageIds", List.of(imageIds.get(1), imageIds.get(0)));
+        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
+
+        mockMvc.perform(get(LISTINGS + "/{id}", listingId))
+                .andExpect(jsonPath("$.images", hasSize(2)))
+                .andExpect(jsonPath("$.images[0].id").value(imageIds.get(1)))
+                .andExpect(jsonPath("$.images[0].cover").value(true))
+                .andExpect(jsonPath("$.images[1].id").value(imageIds.get(0)))
+                .andExpect(jsonPath("$.images[1].cover").value(false));
+    }
+
+    @Test
     void update_staleVersion_returns409AndEveryEditBumpsVersion() throws Exception {
         String owner = registerUser();
         long seriesId = series("Toyota", "Corolla", "1.6");
         long districtId = district("İzmir", "Karşıyaka");
         long listingId = createListing(owner, seriesId, districtId);
+        List<Long> originalImageIds = imageIdsOfListing(listingId);
+        long replacementImageId = TestImages.uploaded(jdbcTemplate, userId(owner));
 
         Map<String, Object> body = listingBody(seriesId, districtId);
         body.put("version", 0);
         body.put("title", "Güncellenmiş başlık");
-        body.put("imageUrls", List.of(IMAGE_2));
+        body.put("imageIds", List.of(replacementImageId));
         String firstUpdate = perform(put(LISTINGS + "/{id}", listingId), owner, body)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Güncellenmiş başlık"))
                 .andExpect(jsonPath("$.images", hasSize(1)))
-                .andExpect(jsonPath("$.images[0].url").value(IMAGE_2))
+                .andExpect(jsonPath("$.images[0].id").value(replacementImageId))
                 .andReturn().getResponse().getContentAsString();
         long versionAfterFirst = JsonPath.<Number>read(firstUpdate, "$.version").longValue();
         assertThat(versionAfterFirst).isPositive();
+        assertThat(originalImageIds).allSatisfy(imageId ->
+                assertThat(TestImages.statusOf(jdbcTemplate, imageId)).isEqualTo("DELETED"));
 
         perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isConflict());
 
         // Only images change here: the listing row itself is untouched but its version must still move
         body.put("version", versionAfterFirst);
-        body.put("imageUrls", List.of(IMAGE_1, IMAGE_2));
+        body.put("imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(owner)), replacementImageId));
         String secondUpdate = perform(put(LISTINGS + "/{id}", listingId), owner, body)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -293,7 +355,7 @@ class ListingIT {
                 .andExpect(jsonPath("$.status").value("SOLD"));
         changeStatus(owner, listingId, "ACTIVE").andExpect(status().isUnprocessableContent());
 
-        Map<String, Object> body = listingBody(seriesId, districtId);
+        Map<String, Object> body = withImages(listingBody(seriesId, districtId), owner);
         body.put("version", currentVersion(listingId));
         perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isUnprocessableContent());
     }
@@ -302,6 +364,7 @@ class ListingIT {
     void delete_ownListing_removesDetailImagesAndFavorites() throws Exception {
         String owner = registerUser();
         long listingId = createListing(owner, series("Hyundai", "i20", "1.4 MPI"), district("Bursa", "Nilüfer"));
+        List<Long> imageIds = imageIdsOfListing(listingId);
         long favoritingUserId = userId(registerUser());
         jdbcTemplate.update("insert into favorites (user_id, listing_id, created_at) values (?, ?, now())",
                 favoritingUserId, listingId);
@@ -314,6 +377,9 @@ class ListingIT {
                     "select count(*) from " + table + " where listing_id = ?", Integer.class, listingId))
                     .as(table).isZero();
         }
+        // Image rows stay until the cleanup removes their stored files
+        assertThat(imageIds).isNotEmpty().allSatisfy(imageId ->
+                assertThat(TestImages.statusOf(jdbcTemplate, imageId)).isEqualTo("DELETED"));
     }
 
     @Test
@@ -349,7 +415,7 @@ class ListingIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(3))
                 .andExpect(jsonPath("$.totalPages").value(2))
-                .andExpect(jsonPath("$.content[0].coverImageUrl").value(IMAGE_1));
+                .andExpect(jsonPath("$.content[0].coverImageUrl").value(publicUrlOf(imageIdsOfListing(cheap).getFirst())));
         assertThat(searchIds(filter)).containsExactly(cheap, middle);
         assertThat(searchIds(filter + "&page=1")).containsExactly(expensive);
     }
@@ -420,8 +486,29 @@ class ListingIT {
         body.put("currency", "TRY");
         body.put("districtId", districtId);
         body.put("vehicle", vehicle);
-        body.put("imageUrls", List.of(IMAGE_1, IMAGE_2));
         return body;
+    }
+
+    // Listings need the owner's uploaded images; createListing adds fresh ones unless the body names its own
+    private Map<String, Object> withImages(Map<String, Object> body, String token) throws Exception {
+        body.put("imageIds", TestImages.uploaded(jdbcTemplate, userId(token), 2));
+        return body;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Long> imageIdsOf(Map<String, Object> body) {
+        return (List<Long>) body.get("imageIds");
+    }
+
+    // In display order, so the first one is the cover
+    private List<Long> imageIdsOfListing(long listingId) {
+        return jdbcTemplate.queryForList("select id from listing_images where listing_id = ? order by display_order",
+                Long.class, listingId);
+    }
+
+    // Matches the test profile's app.storage.public-base-url
+    private String publicUrlOf(long imageId) {
+        return "http://localhost:9/satmis-images/" + TestImages.objectKeyOf(jdbcTemplate, imageId);
     }
 
     private static Map<String, Object> withVehicle(Map<String, Object> body, int modelYear, int kilometer) {
@@ -445,6 +532,9 @@ class ListingIT {
     }
 
     private long createListing(String token, Map<String, Object> body) throws Exception {
+        if (!body.containsKey("imageIds")) {
+            withImages(body, token);
+        }
         String response = perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

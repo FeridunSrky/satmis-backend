@@ -1,7 +1,6 @@
 package com.satmis.listing.dto;
 
 import com.satmis.common.ValidationGroups;
-import com.satmis.common.validation.HttpsUrlList;
 import com.satmis.enums.CurrencyType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
@@ -9,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.UniqueElements;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -40,9 +40,10 @@ public record ListingRequest(
         @Valid
         VehicleDetailRequest vehicle,
 
+        // Ids from POST /api/listing-images after complete; the order is the display order, the first is the cover
         @NotNull(message = "En az bir görsel zorunludur")
         @Size(min = 1, max = 20, message = "1 ile 20 arasında görsel eklenmelidir")
-        @HttpsUrlList
-        List<String> imageUrls
+        @UniqueElements(message = "Aynı görsel birden fazla kez eklenemez")
+        List<Long> imageIds
 ) {
 }

@@ -2,6 +2,7 @@ package com.satmis.listing;
 
 import com.satmis.favorite.FavoriteRepository;
 import com.satmis.listing.dto.ListingDetailResponse;
+import com.satmis.storage.ObjectStorage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -12,12 +13,13 @@ class ListingDetailAssembler {
 
     private final ListingMapper listingMapper;
     private final FavoriteRepository favoriteRepository;
+    private final ObjectStorage objectStorage;
 
     ListingDetailResponse assemble(Listing listing, Long viewerId) {
         long favoriteCount = favoriteRepository.countByListingId(listing.getId());
         boolean favoritedByMe = viewerId != null
                 && favoriteRepository.existsByUserIdAndListingId(viewerId, listing.getId());
         boolean viewerAuthenticated = viewerId != null;
-        return listingMapper.toDetail(listing, favoriteCount, favoritedByMe, viewerAuthenticated);
+        return listingMapper.toDetail(listing, favoriteCount, favoritedByMe, viewerAuthenticated, objectStorage);
     }
 }
