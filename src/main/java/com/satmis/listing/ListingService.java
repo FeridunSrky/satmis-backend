@@ -8,12 +8,14 @@ import com.satmis.common.ApiException;
 import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingRequest;
+import com.satmis.listing.dto.MarkSoldRequest;
 import com.satmis.vehicle.VehicleDetail;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Map;
@@ -26,10 +28,12 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class ListingService {
 
-    // Approval states (PENDING_APPROVAL, REJECTED) are left only through an admin or an edit, never by the owner
+    // Approval states (PENDING_APPROVAL, REJECTED) are left only through an admin or an edit, never by the owner.
+    // SOLD is entered and left only through markSold/relist, which carry the sale details.
     private static final Map<ListingStatus, Set<ListingStatus>> OWNER_TRANSITIONS = Map.of(
-            ListingStatus.ACTIVE, EnumSet.of(ListingStatus.PASSIVE, ListingStatus.SOLD),
-            ListingStatus.PASSIVE, EnumSet.of(ListingStatus.ACTIVE, ListingStatus.SOLD));
+            ListingStatus.ACTIVE, EnumSet.of(ListingStatus.PASSIVE),
+            ListingStatus.PASSIVE, EnumSet.of(ListingStatus.ACTIVE));
+    private static final Set<ListingStatus> SELLABLE = EnumSet.of(ListingStatus.ACTIVE, ListingStatus.PASSIVE);
 
     private final ListingRepository listingRepository;
     private final DistrictRepository districtRepository;
@@ -85,8 +89,39 @@ public class ListingService {
     }
 
     @Transactional
+    public ListingDetailResponse markSold(Long listingId, Long userId, MarkSoldRequest request) {
+        Listing listing = findOwnedListing(listingId, userId);
+        if (!listing.getVersion().equals(request.version())) {
+            throw staleVersion();
+        }
+        if (!SELLABLE.contains(listing.getStatus())) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "Sadece yayındaki ya da yayından kaldırılmış ilan satıldı olarak işaretlenebilir");
+        }
+        SalePricePolicy.requireWithinRange(listing, request.salePrice());
+        listing.markSold(request.salePrice(), blankToNull(request.note()), Instant.now());
+        listingRepository.flush();
+        return listingDetailAssembler.assemble(listing, userId);
+    }
+
+    @Transactional
+    public ListingDetailResponse relist(Long listingId, Long userId) {
+        Listing listing = findOwnedListing(listingId, userId);
+        if (listing.getStatus() != ListingStatus.SOLD) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "İlan satılmış olarak işaretli değil");
+        }
+        listing.relist();
+        listingRepository.flush();
+        return listingDetailAssembler.assemble(listing, userId);
+    }
+
+    // Sold listings are the data behind the sold vehicles page; the owner relists first if it must go
+    @Transactional
     public void delete(Long listingId, Long userId) {
         Listing listing = findOwnedListing(listingId, userId);
+        if (listing.getStatus() == ListingStatus.SOLD) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "Satılmış ilan silinemez");
+        }
         listingImageService.releaseImages(listing);
         listingRepository.delete(listing);
     }
@@ -139,6 +174,10 @@ public class ListingService {
     private VehicleSeries findSeries(Long seriesId) {
         return vehicleSeriesRepository.findById(seriesId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "Araç serisi bulunamadı"));
+    }
+
+    private static String blankToNull(String text) {
+        return text == null || text.isBlank() ? null : text.strip();
     }
 
     private static ApiException staleVersion() {

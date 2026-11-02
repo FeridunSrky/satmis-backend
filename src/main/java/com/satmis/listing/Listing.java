@@ -27,6 +27,7 @@ import lombok.Setter;
 import org.hibernate.annotations.BatchSize;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,6 +73,23 @@ public class Listing extends AuditableEntity {
     @Setter(AccessLevel.NONE)
     private String rejectionReason;
 
+    // Set only while SOLD (ck_listings_sale); markSold/relist keep them together with the status
+    @Column(precision = 15, scale = 2)
+    @Setter(AccessLevel.NONE)
+    private BigDecimal salePrice;
+
+    @Column(length = 1000)
+    @Setter(AccessLevel.NONE)
+    private String saleNote;
+
+    @Setter(AccessLevel.NONE)
+    private Instant soldAt;
+
+    // An admin hid a sale with a made-up price from the sold vehicles page; the listing stays SOLD
+    @Column(nullable = false)
+    @Setter(AccessLevel.NONE)
+    private boolean saleHidden;
+
     @Column(nullable = false)
     private int viewCount = 0;
 
@@ -106,6 +124,27 @@ public class Listing extends AuditableEntity {
     public void reject(String reason) {
         status = ListingStatus.REJECTED;
         rejectionReason = reason;
+    }
+
+    public void markSold(BigDecimal salePrice, String saleNote, Instant soldAt) {
+        status = ListingStatus.SOLD;
+        this.salePrice = salePrice;
+        this.saleNote = saleNote;
+        this.soldAt = soldAt;
+        saleHidden = false;
+    }
+
+    // The sale fell through: the sale record goes away and the already approved listing is live again
+    public void relist() {
+        status = ListingStatus.ACTIVE;
+        salePrice = null;
+        saleNote = null;
+        soldAt = null;
+        saleHidden = false;
+    }
+
+    public void hideSale() {
+        saleHidden = true;
     }
 
     // What anonymous visitors and other users may see: active, and the owner is not blocked

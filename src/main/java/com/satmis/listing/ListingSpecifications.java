@@ -30,7 +30,20 @@ final class ListingSpecifications {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(builder.equal(root.get("status"), ListingStatus.ACTIVE));
             predicates.add(builder.isTrue(root.get("owner").get("enabled")));
-            addListingPredicates(predicates, criteria, root, builder);
+            addListingPredicates(predicates, criteria, root, builder, root.get("price"));
+            addVehiclePredicates(predicates, criteria, root.join("vehicleDetail"), builder);
+            return builder.and(predicates.toArray(Predicate[]::new));
+        };
+    }
+
+    // The sold vehicles page: sold, not hidden by an admin, owner not blocked. Price filters use the sale price.
+    static Specification<Listing> publiclySoldMatching(ListingSearchCriteria criteria) {
+        return (root, query, builder) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(builder.equal(root.get("status"), ListingStatus.SOLD));
+            predicates.add(builder.isFalse(root.get("saleHidden")));
+            predicates.add(builder.isTrue(root.get("owner").get("enabled")));
+            addListingPredicates(predicates, criteria, root, builder, root.get("salePrice"));
             addVehiclePredicates(predicates, criteria, root.join("vehicleDetail"), builder);
             return builder.and(predicates.toArray(Predicate[]::new));
         };
@@ -45,8 +58,7 @@ final class ListingSpecifications {
     }
 
     private static void addListingPredicates(List<Predicate> predicates, ListingSearchCriteria criteria,
-                                             Root<Listing> root, CriteriaBuilder builder) {
-        Path<BigDecimal> price = root.get("price");
+                                             Root<Listing> root, CriteriaBuilder builder, Path<BigDecimal> price) {
         KeywordQuery.toTsQuery(criteria.q()).ifPresent(tsQuery -> predicates.add(keywordMatches(root, builder, tsQuery)));
         addIfPresent(predicates, criteria.districtId(),
                 () -> builder.equal(root.get("district").get(ID), criteria.districtId()));

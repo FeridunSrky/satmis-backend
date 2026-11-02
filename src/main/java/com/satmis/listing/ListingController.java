@@ -8,6 +8,7 @@ import com.satmis.listing.dto.ListingPageRequest;
 import com.satmis.listing.dto.ListingRequest;
 import com.satmis.listing.dto.ListingSearchCriteria;
 import com.satmis.listing.dto.ListingSummaryResponse;
+import com.satmis.listing.dto.MarkSoldRequest;
 import com.satmis.security.CustomUserDetails;
 import jakarta.validation.Valid;
 import jakarta.validation.groups.Default;
@@ -71,6 +72,20 @@ public class ListingController {
                                               @AuthenticationPrincipal CustomUserDetails principal,
                                               @Valid @RequestBody ChangeStatusRequest request) {
         return listingService.changeStatus(listingId, principal.getId(), request.status());
+    }
+
+    @PostMapping("/{listingId}/sale")
+    public ListingDetailResponse markSold(@PathVariable Long listingId,
+                                          @AuthenticationPrincipal CustomUserDetails principal,
+                                          @Valid @RequestBody MarkSoldRequest request) {
+        return listingService.markSold(listingId, principal.getId(), request);
+    }
+
+    // Cancels the sale: the listing is live again
+    @DeleteMapping("/{listingId}/sale")
+    public ListingDetailResponse relist(@PathVariable Long listingId,
+                                        @AuthenticationPrincipal CustomUserDetails principal) {
+        return listingService.relist(listingId, principal.getId());
     }
 
     @DeleteMapping("/{listingId}")

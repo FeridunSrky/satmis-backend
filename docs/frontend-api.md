@@ -12,7 +12,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`, `IMAGE_LIMIT_REACHED`, `IMAGE_NOT_UPLOADED`, `IMAGE_INVALID`, `IMAGE_NOT_AVAILABLE`); diğer hatalarda alan hiç yoktur. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`, `IMAGE_LIMIT_REACHED`, `IMAGE_NOT_UPLOADED`, `IMAGE_INVALID`, `IMAGE_NOT_AVAILABLE`, `SALE_PRICE_OUT_OF_RANGE`); diğer hatalarda alan hiç yoktur. |
 | Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel listesi hataları tek anahtar altında döner (`imageIds`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
@@ -221,6 +221,8 @@ interface UploadedImage {
 | POST | `/api/listings` | giriş | 201 `ListingDetail` |
 | PUT | `/api/listings/{id}` | sahibi | 200 `ListingDetail` |
 | PATCH | `/api/listings/{id}/status` | sahibi | 200 `ListingDetail` |
+| POST | `/api/listings/{id}/sale` | sahibi | 200 `ListingDetail` — satıldı olarak işaretler (aşağıda "Satış") |
+| DELETE | `/api/listings/{id}/sale` | sahibi | 200 `ListingDetail` — satışı geri alır, ilan tekrar yayına girer |
 | DELETE | `/api/listings/{id}` | sahibi | 204 |
 | GET | `/api/users/me/listings` | giriş | `PageResponse<ListingSummary>` — her durumdaki kendi ilanları |
 
@@ -292,6 +294,7 @@ interface ListingDetail {
   currency: CurrencyType;
   status: ListingStatus;
   rejectionReason: string | null; // sadece REJECTED iken dolu; reddedilen ilanı sadece sahibi ve admin görür
+  sale: ListingSale | null;  // sadece SOLD iken dolu; satılmış ilanı sadece sahibi ve admin görür
   viewCount: number;        // bu görüntülemeden önceki sayı; sahibin bakışları sayılmaz
   favoriteCount: number;
   favoritedByMe: boolean;   // token yoksa her zaman false
@@ -318,6 +321,15 @@ interface ListingDetail {
     exchangeable: boolean;
   };
   images: { id: number; url: string; displayOrder: number; cover: boolean }[]; // displayOrder'a göre sıralı
+}
+```
+
+```ts
+interface ListingSale {
+  salePrice: number;      // ilanın para biriminde
+  note: string | null;    // satış açıklaması
+  soldAt: string;         // satıldı olarak işaretlendiği an (sunucu saati)
+  hidden: boolean;        // true: admin bu satışı satılmış araçlar sayfasından gizledi
 }
 ```
 
@@ -370,7 +382,8 @@ interface ListingRequest {
 | 403 | Başkasının ilanını güncelleme/silme/durum değiştirme | "Yetkiniz yok" göster |
 | 404 | İlan yok **veya** ACTIVE değil ve bakan kişi sahibi değil | "İlan bulunamadı" sayfası |
 | 409 | `version` eski: ilan arada başka yerden güncellenmiş | Uyarı göster, detayı yeniden çek, kullanıcı tekrar denesin |
-| 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme; izin verilmeyen durum geçişi (onay bekleyen/reddedilen ilan dahil) | `message`'ı göster |
+| 422 | Seri veya ilçe bulunamadı; SOLD ilanı güncelleme veya silme; izin verilmeyen durum geçişi (onay bekleyen/reddedilen ilan dahil); satılamaz durumdaki ilanı satma; satılmamış ilanın satışını geri alma | `message`'ı göster |
+| 422 + `code: "SALE_PRICE_OUT_OF_RANGE"` | Satış fiyatı ilan fiyatının %80–%110'u dışında | `message`'ı satış fiyatı alanının altında göster (izin verilen aralığı içerir) |
 | 422 + `code: "PHONE_REQUIRED"` | Profilde telefon yokken ilan verme | Profil sayfasına yönlendir |
 | 422 + `code: "EMAIL_NOT_VERIFIED"` | E-posta doğrulanmamışken ilan verme | "E-postanı doğrula" uyarısı + tekrar gönder butonu |
 | 422 + `code: "IMAGE_NOT_AVAILABLE"` | `imageIds` içinde başkasının, başka bir ilanın, yüklemesi tamamlanmamış ya da silinmiş bir görsel var | `message`'ı göster; görselleri yeniden yükletin (form durumu bayatlamış olabilir) |
@@ -379,11 +392,34 @@ interface ListingRequest {
 
 | Mevcut | İzin verilen hedef |
 |---|---|
-| ACTIVE | PASSIVE, SOLD |
-| PASSIVE | ACTIVE, SOLD |
-| SOLD | — (son durum, ilan artık güncellenemez) |
+| ACTIVE | PASSIVE |
+| PASSIVE | ACTIVE |
 
-Diğer her geçiş 422 döner. `PENDING_APPROVAL` ve `REJECTED` durumlarından sahibi bu uçla çıkamaz (aşağıya bakın).
+Diğer her geçiş 422 döner. **`SOLD` bu uçla verilemez** (`PATCH` ile `{ "status": "SOLD" }` artık 422): satış bilgisi taşıdığı için sadece `POST /api/listings/{id}/sale` ile girilir ve `DELETE /api/listings/{id}/sale` ile çıkılır. `PENDING_APPROVAL` ve `REJECTED` durumlarından sahibi bu uçla çıkamaz (aşağıya bakın).
+
+### Satış
+
+**Satıldı olarak işaretleme:** `POST /api/listings/{id}/sale`
+
+```ts
+interface MarkSoldRequest {
+  salePrice: number;      // zorunlu, > 0, en fazla 13 tam + 2 ondalık; ilanın para biriminde
+  note?: string | null;   // en fazla 1000 karakter; boş/sadece boşluk null sayılır, baş/son boşluk kırpılır
+  version: number;        // detaydaki version (eskiyse 409)
+}
+```
+
+- Sadece `ACTIVE` veya `PASSIVE` ilan satılabilir; diğerleri 422.
+- Satış fiyatı ilan fiyatının **%80'i ile %110'u arasında** olmalı (sınırlar dahil; ör. 750.000 TL'lik ilan için 600.000–825.000). Dışındaysa `422` + `code: "SALE_PRICE_OUT_OF_RANGE"`; `message` aralığı söyler. Formda bu aralığı önceden göstermek iyi olur (hesap: `ceil(fiyat × 0.80)`, `floor(fiyat × 1.10)`, kuruş hassasiyetinde).
+- Satış zamanı sunucunun kaydettiği andır; istemci tarih göndermez.
+- Başarılı cevap `ListingDetail`: `status: "SOLD"`, `sale` dolu. İlan aramadan ve herkese açık detaydan çıkar, satılmış araçlar sayfasına girer.
+- Satılmış ilan **düzenlenemez ve silinemez** (422). Silmek isteyen önce satışı geri almalıdır.
+
+**Tekrar yayına alma (satışı geri alma):** `DELETE /api/listings/{id}/sale`, gövde yok.
+
+- Sadece `SOLD` ilanda; diğerlerinde 422.
+- Satış kaydı (fiyat, açıklama, tarih) silinir, ilan satılmış araçlar sayfasından çıkar ve **doğrudan `ACTIVE`** olur (daha önce onaylandığı için tekrar onaya gitmez).
+- Admin'in gizlediği satışta da çalışır.
 
 ### Admin onayı
 
@@ -400,8 +436,80 @@ Diğer her geçiş 422 döner. `PENDING_APPROVAL` ve `REJECTED` durumlarından s
 
 - Arama (`GET /api/listings`) sadece ACTIVE ilanları döner.
 - Sahibi admin tarafından engellenmiş ilanlar her yerde (arama, detay, favoriler) ACTIVE olmayan ilan gibi gizlenir. Engel kalkınca ilanlar olduğu gibi geri gelir.
+- Satılmış ilanlar herkese açık olarak sadece satılmış araçlar sayfasında (`/api/sold-vehicles`) görünür.
 - Detay: ACTIVE olmayan ilanı sadece sahibi görür; diğerlerine 404 (403 değil, ilanın varlığı sızmasın diye). Sahibinin kendi PASSIVE/SOLD ilanını açabilmesi için detay isteğinde token gönderilmeli; mevcut `http` istemcisi bunu yapıyor.
 - "İlanlarım" (`/api/users/me/listings`) her durumu döner; `status` alanına göre rozet gösterilebilir.
+
+## Satılmış araçlar (herkese açık, token gerekmez)
+
+Satılmış ilanların gerçek satış fiyatlarıyla listelendiği ayrı sayfa için. Satıcı bilgisi (ad, telefon) **hiçbir uçta dönmez**.
+
+Bir ilan bu sayfada görünür: `SOLD` durumunda **ve** admin satışı gizlememiş **ve** sahibi engelli değil. Satış geri alınınca (tekrar yayına alma) ya da admin gizleyince sayfadan çıkar.
+
+| Metot | URL | Cevap |
+|---|---|---|
+| GET | `/api/sold-vehicles` | `PageResponse<SoldVehicleSummary>` |
+| GET | `/api/sold-vehicles/summary` | `SalePriceSummary` |
+| GET | `/api/sold-vehicles/{id}` | `SoldVehicleDetail`; görünmeyen/olmayan kayıtta 404. `id` ilan id'sidir |
+
+**Filtreler:** liste ve özet, `GET /api/listings` ile **aynı** filtre parametrelerini alır (`q`, `brandId`, `modelId`, `seriesId`, `cityId`, `districtId`, `minPrice`, `maxPrice`, `currency`, `minYear`, `maxYear`, `maxKm`, `fuelType`, `gearType`, `bodyType`, `vehicleCondition`, `fromWho`, `hasDamageRecord`) ve aynı doğrulama kurallarına uyar. Fark: `minPrice`/`maxPrice` **satış fiyatına** uygulanır. Arama formu bileşenleri yeniden kullanılabilir.
+
+**Sıralama ve sayfa (sadece liste):** `sort` (`SoldVehicleSort`, varsayılan `NEWEST` = en yeni satış), `page`, `size` (en fazla 50). Bilinmeyen `sort` → 400.
+
+```ts
+type SoldVehicleSort =
+  | 'NEWEST' | 'OLDEST'          // satış tarihine göre
+  | 'PRICE_ASC' | 'PRICE_DESC'   // satış fiyatına göre
+  | 'YEAR_DESC' | 'YEAR_ASC'
+  | 'KM_ASC' | 'KM_DESC';
+
+interface SoldVehicleSummary {
+  id: number;
+  title: string;
+  listingPrice: number;   // ilandaki istenen fiyat
+  salePrice: number;      // gerçekleşen satış fiyatı
+  currency: CurrencyType;
+  soldAt: string;
+  cityName: string;
+  districtName: string;
+  brandName: string;
+  modelName: string;
+  seriesName: string;
+  modelYear: number;
+  kilometer: number;
+  fuelType: FuelType;
+  gearType: GearType;
+  coverImageUrl: string | null;
+}
+
+interface SoldVehicleDetail {
+  id: number;
+  title: string;
+  description: string | null;
+  listingPrice: number;
+  salePrice: number;
+  currency: CurrencyType;
+  saleNote: string | null;
+  soldAt: string;
+  createdAt: string;       // ilanın açıldığı tarih
+  location: ListingDetail['location'];
+  vehicle: ListingDetail['vehicle'];
+  images: ListingDetail['images'];
+}
+
+// Para birimi başına ayrı; en çok satışı olan önce. Eşleşme yoksa currencies boş dizi.
+interface SalePriceSummary {
+  currencies: {
+    currency: CurrencyType;
+    count: number;
+    average: number;   // 2 ondalığa yuvarlanmış
+    min: number;
+    max: number;
+  }[];
+}
+```
+
+Özet, listeyle aynı filtrelerle ayrı bir istektir (sayfalama/sıralama almaz). Örnek gösterim: "Bu aramada 23 araç satıldı · ortalama 845.000 ₺ (en düşük 790.000 ₺, en yüksek 910.000 ₺)". Birden fazla para birimi varsa her biri ayrı satır.
 
 ## Favoriler
 
@@ -535,6 +643,16 @@ interface AdminListingReport {
   resolvedAt: string | null;
 }
 ```
+
+### Satış kaydını gizleme
+
+Uydurma satış fiyatına karşı: admin satışı satılmış araçlar sayfasından (liste, özet, detay) kaldırır. İlan `SOLD` kalır; sahibi kendi detayında `sale.hidden: true` görür ve isterse satışı geri alabilir.
+
+| Metot | URL | Cevap |
+|---|---|---|
+| POST | `/api/admin/sold-vehicles/{listingId}/hide` | 200 `ListingDetail` (`sale.hidden: true`). Tekrar çağrılırsa yine 200. İlan `SOLD` değilse 422, yoksa 404 |
+
+Gizlemeyi geri alan uç yoktur. Admin bu işlemi satılmış araç detayından (`/api/sold-vehicles/{id}`) ya da `GET /api/admin/listings/{id}` ile açtığı ilandan başlatabilir; `GET /api/admin/listings?status=SOLD` satılmış ilanları (gizlenenler dahil) listeler.
 
 ## Enum değerleri ve önerilen Türkçe etiketler
 

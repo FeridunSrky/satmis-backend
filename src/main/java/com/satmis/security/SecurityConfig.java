@@ -51,7 +51,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(restSecurityHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/listings/**", "/api/catalog/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/listings/**", "/api/catalog/**", "/api/sold-vehicles/**").permitAll()
                         .requestMatchers(OPENAPI_PATHS).permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

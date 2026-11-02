@@ -4,6 +4,8 @@ import com.satmis.catalog.District;
 import com.satmis.listing.dto.ListingDetailResponse;
 import com.satmis.listing.dto.ListingRequest;
 import com.satmis.listing.dto.ListingSummaryResponse;
+import com.satmis.listing.dto.SoldVehicleDetailResponse;
+import com.satmis.listing.dto.SoldVehicleSummaryResponse;
 import com.satmis.listing.dto.VehicleDetailRequest;
 import com.satmis.storage.ObjectStorage;
 import com.satmis.user.User;
@@ -21,12 +23,21 @@ public interface ListingMapper {
     @Mapping(target = "seller", expression = "java(toSeller(listing.getOwner(), includeSellerPhone))")
     @Mapping(target = "location", source = "listing.district")
     @Mapping(target = "vehicle", source = "listing.vehicleDetail")
+    @Mapping(target = "sale", expression = "java(toSale(listing))")
     ListingDetailResponse toDetail(Listing listing, long favoriteCount, boolean favoritedByMe,
                                    boolean includeSellerPhone, @Context ObjectStorage objectStorage);
 
     default ListingDetailResponse.Seller toSeller(User owner, boolean includePhone) {
         return new ListingDetailResponse.Seller(owner.getId(), owner.getFirstName(), owner.getLastName(),
                 includePhone ? owner.getPhone() : null);
+    }
+
+    default ListingDetailResponse.Sale toSale(Listing listing) {
+        if (listing.getSoldAt() == null) {
+            return null;
+        }
+        return new ListingDetailResponse.Sale(listing.getSalePrice(), listing.getSaleNote(), listing.getSoldAt(),
+                listing.isSaleHidden());
     }
 
     @Mapping(target = "cityId", source = "city.id")
@@ -58,6 +69,24 @@ public interface ListingMapper {
     @Mapping(target = "fuelType", source = "listing.vehicleDetail.fuelType")
     @Mapping(target = "gearType", source = "listing.vehicleDetail.gearType")
     ListingSummaryResponse toSummary(Listing listing, String coverImageUrl);
+
+    @Mapping(target = "id", source = "listing.id")
+    @Mapping(target = "listingPrice", source = "listing.price")
+    @Mapping(target = "cityName", source = "listing.district.city.name")
+    @Mapping(target = "districtName", source = "listing.district.name")
+    @Mapping(target = "brandName", source = "listing.vehicleDetail.series.model.brand.name")
+    @Mapping(target = "modelName", source = "listing.vehicleDetail.series.model.name")
+    @Mapping(target = "seriesName", source = "listing.vehicleDetail.series.name")
+    @Mapping(target = "modelYear", source = "listing.vehicleDetail.modelYear")
+    @Mapping(target = "kilometer", source = "listing.vehicleDetail.kilometer")
+    @Mapping(target = "fuelType", source = "listing.vehicleDetail.fuelType")
+    @Mapping(target = "gearType", source = "listing.vehicleDetail.gearType")
+    SoldVehicleSummaryResponse toSoldSummary(Listing listing, String coverImageUrl);
+
+    @Mapping(target = "listingPrice", source = "price")
+    @Mapping(target = "location", source = "district")
+    @Mapping(target = "vehicle", source = "vehicleDetail")
+    SoldVehicleDetailResponse toSoldDetail(Listing listing, @Context ObjectStorage objectStorage);
 
     // Relations, status, counters and version are owned by the service, never copied from the request
     @Mapping(target = "version", ignore = true)

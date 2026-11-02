@@ -357,7 +357,9 @@ class ListingIT {
         changeStatus(owner, listingId, "PENDING_APPROVAL").andExpect(status().isUnprocessableContent());
         changeStatus(owner, listingId, "PASSIVE").andExpect(status().isOk());
         changeStatus(owner, listingId, "ACTIVE").andExpect(status().isOk());
-        changeStatus(owner, listingId, "SOLD").andExpect(status().isOk())
+        // SOLD carries sale details, so it is reached only through the sale endpoint
+        changeStatus(owner, listingId, "SOLD").andExpect(status().isUnprocessableContent());
+        markSold(owner, listingId).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SOLD"));
         changeStatus(owner, listingId, "ACTIVE").andExpect(status().isUnprocessableContent());
 
@@ -556,7 +558,7 @@ class ListingIT {
         long districtId = district("Eskişehir", "Tepebaşı");
         long active = createListing(owner, seriesId, districtId);
         long sold = createListing(owner, seriesId, districtId);
-        changeStatus(owner, sold, "SOLD");
+        markSold(owner, sold).andExpect(status().isOk());
         createListing(registerUser(), seriesId, districtId);
 
         String body = perform(get("/api/users/me/listings"), owner, null)
@@ -646,6 +648,12 @@ class ListingIT {
 
     private ResultActions changeStatus(String token, long listingId, String targetStatus) throws Exception {
         return perform(patch(LISTINGS + "/{id}/status", listingId), token, Map.of("status", targetStatus));
+    }
+
+    // At the asking price of listingBody, which is always within the allowed range
+    private ResultActions markSold(String token, long listingId) throws Exception {
+        return perform(post(LISTINGS + "/{id}/sale", listingId), token,
+                Map.of("salePrice", 750_000, "version", currentVersion(listingId)));
     }
 
     private List<Long> searchIds(String query) throws Exception {

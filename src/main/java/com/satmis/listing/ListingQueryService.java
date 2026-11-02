@@ -17,6 +17,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -69,6 +70,10 @@ public class ListingQueryService {
     // Fixed number of queries per page: ids + count, listings with their catalog data, cover images.
     // Public so other features (favorites) can page listing ids their own way and reuse the summary loading.
     public PageResponse<ListingSummaryResponse> toSummaryPage(Page<Long> idPage) {
+        return toPage(idPage, listingMapper::toSummary);
+    }
+
+    <T> PageResponse<T> toPage(Page<Long> idPage, BiFunction<Listing, String, T> toResponse) {
         List<Long> ids = idPage.getContent();
         if (ids.isEmpty()) {
             return PageResponse.of(List.of(), idPage);
@@ -80,10 +85,10 @@ public class ListingQueryService {
                         (first, second) -> first));
 
         // Keeps the id query's order; skips rows deleted between the two queries
-        List<ListingSummaryResponse> content = ids.stream()
+        List<T> content = ids.stream()
                 .map(listingsById::get)
                 .filter(Objects::nonNull)
-                .map(listing -> listingMapper.toSummary(listing, coverUrlsById.get(listing.getId())))
+                .map(listing -> toResponse.apply(listing, coverUrlsById.get(listing.getId())))
                 .toList();
         return PageResponse.of(content, idPage);
     }
