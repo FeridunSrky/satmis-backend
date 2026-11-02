@@ -2,7 +2,10 @@ package com.satmis.listing;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import com.satmis.listing.dto.SalePriceSummaryResponse;
 import org.springframework.data.jpa.domain.Specification;
+
+import java.util.List;
 
 public interface ListingRepositoryCustom {
 
@@ -11,4 +14,7 @@ public interface ListingRepositoryCustom {
 
     // Detail and image changes do not dirty the listing row itself, so its version must be bumped explicitly
     void forceVersionIncrement(Listing listing);
+
+    // Count, average, min and max sale price of the matching listings, one row per currency, most sales first
+    List<SalePriceSummaryResponse.CurrencyStats> summarizeSalePrices(Specification<Listing> specification);
 }

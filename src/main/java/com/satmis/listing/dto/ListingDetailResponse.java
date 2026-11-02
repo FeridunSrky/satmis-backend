@@ -24,6 +24,8 @@ public record ListingDetailResponse(
         ListingStatus status,
         // Only while REJECTED, which only the owner and admins can see
         String rejectionReason,
+        @Schema(nullable = true, description = "Sadece SOLD ilanda dolu")
+        Sale sale,
         int viewCount,
         long favoriteCount,
         boolean favoritedByMe,
@@ -69,6 +71,10 @@ public record ListingDetailResponse(
             boolean hasDamageRecord,
             boolean exchangeable
     ) {
+    }
+
+    // hidden: an admin removed the sale from the sold vehicles page
+    public record Sale(BigDecimal salePrice, String note, Instant soldAt, boolean hidden) {
     }
 
     public record Image(Long id, String url, int displayOrder, boolean cover) {

@@ -64,6 +64,18 @@ public class ListingModerationService {
         return flushAndAssemble(listing, adminId);
     }
 
+    // For a made-up sale price: the sale leaves the sold vehicles page but the listing stays SOLD, so the owner
+    // cannot simply edit and republish it. Hiding twice is harmless.
+    @Transactional
+    public ListingDetailResponse hideSale(Long listingId, Long adminId) {
+        Listing listing = findListing(listingId);
+        if (listing.getStatus() != ListingStatus.SOLD) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "Sadece satılmış ilanın satış kaydı gizlenebilir");
+        }
+        listing.hideSale();
+        return flushAndAssemble(listing, adminId);
+    }
+
     private Listing findReviewedListing(Long listingId, Long reviewedVersion) {
         Listing listing = findListing(listingId);
         if (!listing.getVersion().equals(reviewedVersion)) {
