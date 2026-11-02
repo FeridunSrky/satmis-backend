@@ -40,6 +40,7 @@ Boot 4 notları:
 - Validation annotation'ları DTO'da durur, entity'de durmaz. Ortak regex'ler `common.ValidationPatterns`'ta.
 - Record'larda eleman kısıtı (`List<@Pattern String>`) kullanma: STS/Eclipse derleyicisi (ECJ) record alanlarının generic imzasını bozuyor ve kısıt sessizce kayboluyor. Liste seviyesinde özel constraint yaz (örn. `@HttpsUrlList`).
 - STS açıkken `target/classes`'a ECJ de yazar; Maven'ın ona güvenmemesi için testleri `./mvnw clean verify` ile çalıştır.
+- Uygulama STS'de (devtools) açıkken `clean verify`'ı proje klasöründe çalıştırma: `target/classes` silinip yeniden yazıldığı için uygulama her seferinde 5–10 sn yeniden başlar, frontend o sırada 502/503 alır. Bunun yerine `python -I "C:/Users/Feridun/.claude/scripts/satmis_verify.py" [maven argümanları, ör. -Dit.test=ListingIT]` kullan: projeyi `%TEMP%\satmis-backend-verify`'a kopyalar (`target`, `.git`, `.env` hariç) ve `clean verify`'ı orada çalıştırır; raporlar o kopyanın `target/`'ında. Proje klasöründe `-DskipTests compile` sorun değil. Sadece lokal geliştirme konusu, devtools prod jar'ına girmez.
 - `spring.jpa.open-in-view=false`: lazy veriye Service içinde (`@Transactional`) erişilir ve orada DTO'ya çevrilir. Okuma metotları `readOnly = true`.
 - Hatalar `ApiException` + `GlobalExceptionHandler` ile standart `ErrorResponse` JSON'u olarak döner.
 - Frontend'in durum kodundan ayırt edemeyeceği hatalar `ErrorCode` enum'una değer ekleyip `new ApiException(status, code, message)` ile atılır (örn. `PHONE_REQUIRED`); `code` diğer hatalarda JSON'a yazılmaz.
@@ -96,7 +97,7 @@ Boot 4 notları:
 - `mvnw` git'te çalıştırılabilir (`100755`) olmalı; Windows bunu göstermez ama Linux CI/Docker ister.
 
 ## Çalışma kuralları
-- Her adımdan sonra derle (`./mvnw -q -DskipTests compile`, Windows PowerShell'de `.\mvnw.cmd`), hatayı düzelt, sonra devam et. İş bitince `./mvnw verify` çalıştır ve sonucu raporla.
+- Her adımdan sonra derle (`./mvnw -q -DskipTests compile`, Windows PowerShell'de `.\mvnw.cmd`), hatayı düzelt, sonra devam et. İş bitince `verify`'ı yukarıdaki kopya script'iyle çalıştır ve sonucu raporla.
 - Listede olmayan bağımlılık ekleme. Gerekirse nedenini yazıp ekle.
 - `git commit` ve `git push` yapma, bunu kullanıcı yapar.
 - Var olan dosyaları sormadan silme veya ezme. `application.properties`'i sormadan değiştirme.
