@@ -21,7 +21,9 @@ public record RateLimitProperties(
         @NotNull @Valid Rule forgotPassword,
         @NotNull @Valid Rule resetPassword,
         @NotNull @Valid Rule imageUpload,
-        @NotNull @Valid Rule listingReport
+        @NotNull @Valid Rule listingReport,
+        @NotNull @Valid Rule listingComment,
+        @NotNull @Valid Rule commentAttachmentUpload
 ) {
 
     // At most `capacity` requests per client within `period`, refilled gradually

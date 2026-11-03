@@ -6,9 +6,9 @@ import java.util.Arrays;
 import java.util.Optional;
 
 // Recognises the format from the file's first bytes; the declared content type is only the client's claim
-final class ImageTypeDetector {
+public final class ImageTypeDetector {
 
-    static final int HEADER_LENGTH = 12;
+    public static final int HEADER_LENGTH = 12;
 
     private static final byte[] JPEG_SIGNATURE = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
@@ -20,7 +20,7 @@ final class ImageTypeDetector {
     private ImageTypeDetector() {
     }
 
-    static Optional<ImageType> detect(byte[] header) {
+    public static Optional<ImageType> detect(byte[] header) {
         if (startsWith(header, 0, JPEG_SIGNATURE)) {
             return Optional.of(ImageType.JPEG);
         }

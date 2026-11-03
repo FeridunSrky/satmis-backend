@@ -19,8 +19,8 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-// Limits the auth, mail-sending, upload-URL and listing-report endpoints per client IP against password guessing,
-// sign-up and mail spam, filling the image storage and mass-reporting.
+// Limits the auth, mail-sending, upload-URL, listing-report and comment endpoints per client IP against password
+// guessing, sign-up and mail spam, filling the storage, mass-reporting and flooding the comment queue.
 // Buckets live in memory, so each app instance counts on its own.
 @Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
@@ -28,7 +28,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final long MIN_RETRY_AFTER_SECONDS = 1;
     // One bucket for all listings: the id varies, the client should still be counted once
     private static final String LISTING_REPORT_PATH = "/api/listings/{id}/reports";
-    private static final Pattern LISTING_REPORT_URI = Pattern.compile("/api/listings/[0-9]+/reports");
+    // Comments and the owner's replies share one bucket: both end up in the same moderation queue
+    private static final String LISTING_COMMENT_PATH = "/api/listings/{id}/comments";
+    private static final Map<String, Pattern> PATTERN_PATHS = Map.of(
+            LISTING_REPORT_PATH, Pattern.compile("/api/listings/[0-9]+/reports"),
+            LISTING_COMMENT_PATH, Pattern.compile("/api/listings/[0-9]+/comments|/api/comments/[0-9]+/reply"));
 
     private final boolean enabled;
     private final Map<String, RateLimitProperties.Rule> rulesByPath;
@@ -37,15 +41,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     public RateLimitFilter(RateLimitProperties properties, RestSecurityHandler errorWriter) {
         this.enabled = properties.enabled();
-        this.rulesByPath = Map.of(
-                "/api/auth/login", properties.login(),
-                "/api/auth/register", properties.register(),
-                "/api/auth/refresh", properties.refresh(),
-                "/api/users/me/email-verification", properties.resendVerification(),
-                "/api/auth/forgot-password", properties.forgotPassword(),
-                "/api/auth/reset-password", properties.resetPassword(),
-                "/api/listing-images", properties.imageUpload(),
-                LISTING_REPORT_PATH, properties.listingReport());
+        this.rulesByPath = Map.ofEntries(
+                Map.entry("/api/auth/login", properties.login()),
+                Map.entry("/api/auth/register", properties.register()),
+                Map.entry("/api/auth/refresh", properties.refresh()),
+                Map.entry("/api/users/me/email-verification", properties.resendVerification()),
+                Map.entry("/api/auth/forgot-password", properties.forgotPassword()),
+                Map.entry("/api/auth/reset-password", properties.resetPassword()),
+                Map.entry("/api/listing-images", properties.imageUpload()),
+                Map.entry("/api/comment-attachments", properties.commentAttachmentUpload()),
+                Map.entry(LISTING_REPORT_PATH, properties.listingReport()),
+                Map.entry(LISTING_COMMENT_PATH, properties.listingComment()));
         this.buckets = new ConcurrentLruCache<>(properties.maxTrackedClients(),
                 key -> newBucket(rulesByPath.get(key.path())));
         this.errorWriter = errorWriter;
@@ -81,7 +87,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (rulesByPath.containsKey(uri)) {
             return uri;
         }
-        return LISTING_REPORT_URI.matcher(uri).matches() ? LISTING_REPORT_PATH : null;
+        return PATTERN_PATHS.entrySet().stream()
+                .filter(entry -> entry.getValue().matcher(uri).matches())
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
     }
 
     private static Bucket newBucket(RateLimitProperties.Rule rule) {

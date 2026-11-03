@@ -24,6 +24,8 @@ public class ObjectStorage {
     // Keys are never reused, so browsers and CDNs may keep an object forever
     static final String CACHE_CONTROL = "public, max-age=31536000, immutable";
 
+    static final String DOWNLOAD_DISPOSITION = "attachment";
+
     // The browser adds these itself and refuses to let scripts set them
     private static final Set<String> BROWSER_SET_HEADERS = Set.of("host", "content-length");
 
@@ -36,6 +38,15 @@ public class ObjectStorage {
      * headers differ from what was signed, so the client cannot upload a larger file or another type.
      */
     public PresignedUpload presignUpload(String key, String contentType, long contentLength, Duration validFor) {
+        return presignUpload(key, contentType, contentLength, validFor, false);
+    }
+
+    /**
+     * Like {@link #presignUpload(String, String, long, Duration)}; with downloadOnly the object is served with
+     * "Content-Disposition: attachment", so browsers save it instead of rendering it (PDFs can carry scripts).
+     */
+    public PresignedUpload presignUpload(String key, String contentType, long contentLength, Duration validFor,
+                                         boolean downloadOnly) {
         PresignedPutObjectRequest presigned = presigner.presignPutObject(presign -> presign
                 .signatureDuration(validFor)
                 .putObjectRequest(put -> put
@@ -43,6 +54,7 @@ public class ObjectStorage {
                         .key(key)
                         .contentType(contentType)
                         .contentLength(contentLength)
+                        .contentDisposition(downloadOnly ? DOWNLOAD_DISPOSITION : null)
                         .cacheControl(CACHE_CONTROL)));
         Map<String, String> headers = presigned.signedHeaders().entrySet().stream()
                 .filter(header -> !BROWSER_SET_HEADERS.contains(header.getKey().toLowerCase(Locale.ROOT)))

@@ -53,4 +53,7 @@ public interface ListingReportRepository extends JpaRepository<ListingReport, Lo
             where r.listing.id = :listingId and r.status = com.satmis.enums.ReportStatus.OPEN""")
     int resolveOpen(@Param("listingId") Long listingId, @Param("resolution") ReportStatus resolution,
                     @Param("admin") User admin, @Param("now") Instant now);
+
+    @Query("select count(distinct r.listing.id) from ListingReport r where r.status = :status")
+    long countListingsWithStatus(@Param("status") ReportStatus status);
 }

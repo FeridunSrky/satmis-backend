@@ -34,7 +34,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.rate-limit.image-upload.capacity=2",
         "app.rate-limit.image-upload.period=1h",
         "app.rate-limit.listing-report.capacity=2",
-        "app.rate-limit.listing-report.period=1h"
+        "app.rate-limit.listing-report.period=1h",
+        "app.rate-limit.listing-comment.capacity=2",
+        "app.rate-limit.listing-comment.period=1h",
+        "app.rate-limit.comment-attachment-upload.capacity=1",
+        "app.rate-limit.comment-attachment-upload.period=1h"
 })
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -44,6 +48,8 @@ class RateLimitIT {
     private static final int LOGIN_CAPACITY = 3;
     private static final int IMAGE_UPLOAD_CAPACITY = 2;
     private static final int LISTING_REPORT_CAPACITY = 2;
+    private static final String COMMENT = """
+            {"body": "Araçta ilanda yazmayan boya ve değişen parça var."}""";
     private static final AtomicInteger NEXT_CLIENT = new AtomicInteger(1);
     private static final String WRONG_LOGIN = """
             {"email": "nobody@satmis.com", "password": "YanlisSifre1"}""";
@@ -125,6 +131,36 @@ class RateLimitIT {
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
                 .andExpect(jsonPath("$.path").value("/api/listings/99/reports"));
         reportListing(uniqueIp(), 99).andExpect(status().isUnauthorized());
+    }
+
+    // Comments and replies fill the same moderation queue, so they share one bucket across all listings
+    @Test
+    void listingCommentAndReply_overSharedLimit_return429() throws Exception {
+        String clientIp = uniqueIp();
+        postJson(clientIp, "/api/listings/1/comments", COMMENT).andExpect(status().isUnauthorized());
+        postJson(clientIp, "/api/comments/7/reply", COMMENT).andExpect(status().isUnauthorized());
+
+        postJson(clientIp, "/api/listings/2/comments", COMMENT)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+        postJson(clientIp, "/api/comments/8/reply", COMMENT).andExpect(status().isTooManyRequests());
+        postJson(uniqueIp(), "/api/listings/2/comments", COMMENT).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void commentAttachmentUpload_overLimit_returns429() throws Exception {
+        String clientIp = uniqueIp();
+        String upload = """
+                {"contentType": "application/pdf", "sizeBytes": 1000}""";
+        postJson(clientIp, "/api/comment-attachments", upload).andExpect(status().isUnauthorized());
+
+        postJson(clientIp, "/api/comment-attachments", upload)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.path").value("/api/comment-attachments"));
+    }
+
+    private ResultActions postJson(String clientIp, String path, String json) throws Exception {
+        return mockMvc.perform(post(path).with(fromIp(clientIp)).contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
     private ResultActions reportListing(String clientIp, long listingId) throws Exception {
