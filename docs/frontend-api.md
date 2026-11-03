@@ -12,7 +12,7 @@ Bu not, frontend'in henüz kullanmadığı backend uçlarını (katalog, ilan, f
 
 | Konu | Kural |
 |---|---|
-| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`, `IMAGE_LIMIT_REACHED`, `IMAGE_NOT_UPLOADED`, `IMAGE_INVALID`, `IMAGE_NOT_AVAILABLE`, `SALE_PRICE_OUT_OF_RANGE`); diğer hatalarda alan hiç yoktur. |
+| Hata gövdesi | Her hatada `{ timestamp, status, code?, message, path, errors? }`. `message` Türkçe ve kullanıcıya gösterilebilir. `code` sadece frontend'in özel davranması gereken hatalarda gelir (şu an: `PHONE_REQUIRED`, `EMAIL_NOT_VERIFIED`, `REFRESH_TOKEN_ROTATED`, `IMAGE_LIMIT_REACHED`, `IMAGE_NOT_UPLOADED`, `IMAGE_INVALID`, `IMAGE_NOT_AVAILABLE`, `SALE_PRICE_OUT_OF_RANGE`, `COMMENT_LIMIT_REACHED`, `REPLY_LIMIT_REACHED`, `ATTACHMENT_LIMIT_REACHED`, `ATTACHMENT_NOT_UPLOADED`, `ATTACHMENT_INVALID`, `ATTACHMENT_NOT_AVAILABLE`); diğer hatalarda alan hiç yoktur. |
 | Alan hataları | `errors` alan → mesaj haritası. İç içe alanlar noktalı (`vehicle.modelYear`). Görsel listesi hataları tek anahtar altında döner (`imageIds`). Bilinmeyen enum / sayı olmayan değer: `"Geçersiz değer"`. |
 | Tarih | ISO-8601 UTC metin (`2026-10-26T11:35:00.750999Z`). Gösterirken yerel saate çevrilmeli. |
 | Para | Cevapta JSON sayısı (`650000.50`). İstekte sayı veya metin (`"650000.50"`) kabul edilir. Kur çevirisi yok; her ilanın kendi `currency`'si var. |
@@ -112,6 +112,8 @@ Aşağıdaki uçlar IP başına sınırlıdır. Aşılınca `429 Too Many Reques
 | `POST /api/auth/reset-password` | 15 dakikada 10 |
 | `POST /api/listing-images` | 10 dakikada 60 (yükleme URL'si isteği; dosyanın depoya PUT'u sayılmaz) |
 | `POST /api/listings/{id}/reports` | saatte 10 (tüm ilanlar için toplam) |
+| `POST /api/listings/{id}/comments` ve `POST /api/comments/{id}/reply` | saatte 20 (yorum ve cevaplar birlikte, tüm ilanlar için toplam) |
+| `POST /api/comment-attachments` | 10 dakikada 30 (yükleme URL'si isteği) |
 
 Refresh interceptor'ı `429`'u oturum düşmesi gibi ele almamalı (kullanıcıyı çıkışa atmamalı); `Retry-After` kadar bekleyip tekrar denenebilir.
 
@@ -553,6 +555,100 @@ interface ListingReport {
 }
 ```
 
+## İlan yorumları
+
+İlanı gören (ör. aracı yerinde inceleyen) kullanıcılar ilanın altına yorum yazar ve isterse kanıt ekler (ekspertiz raporu, fotoğraf). İlan sahibi her yoruma bir cevap yazabilir. **Yorum da cevap da admin onayından geçmeden kimseye görünmez.**
+
+### Kurallar
+
+- Yorum için giriş + **doğrulanmış e-posta** gerekir (`422` + `EMAIL_NOT_VERIFIED`). Telefon gerekmez.
+- Yorum sadece yayındaki (`ACTIVE`, sahibi engelli değil) ilana yazılır; ilan yoksa ya da yayında değilse `404`. Satılmış ilana yeni yorum yazılamaz ama onaylı yorumlar ve cevaplar **görünmeye devam eder**.
+- İlan sahibi kendi ilanına yorum yazamaz (`422`); sadece cevap verir. Yorum formunu sahibine gösterme (`seller.id` = giriş yapan kullanıcı).
+- Metin 20–2000 karakter (baştaki/sondaki boşluklar sayılmaz, kırpılarak kaydedilir; kısaysa `400`). En fazla 5 ek (`400`). Ek opsiyoneldir.
+- **Yorum hakkı:** bir kullanıcı bir ilana en fazla **2** yorum gönderebilir. Reddedilen ve silinen yorumlar da hak tüketir. Hak bitince `409` + `COMMENT_LIMIT_REACHED`. Kalan hak `GET /api/users/me/comments/quota?listingId=` ile öğrenilir.
+- **Cevap hakkı:** sadece ilan sahibi, sadece **onaylanmış** yoruma cevap verir. Bir yorumun aynı anda tek bir bekleyen veya yayındaki cevabı olur (`409` "Bu yoruma zaten cevap verdiniz"). Bir yoruma toplam **2** cevap denemesi vardır: cevap reddedilirse bir kez daha denenebilir. Silinen cevap da denemeyi tüketir. Deneme bitince `409` + `REPLY_LIMIT_REACHED`. Başkası cevap vermeye çalışırsa `403`; yorum yayında değilse `404`.
+- Cevap, yayındaki ve satılmış ilanlarda verilebilir.
+- Yazar adı maskeli döner: `"Ayşe Y."`. Cevapta isim yoktur, frontend **"İlan sahibi"** yazar. E-posta ve telefon hiçbir yorum ucunda dönmez.
+- Engellenen kullanıcının yorumları gizlenir (engel kalkınca geri gelir).
+- Yazar kendi yorumunu/cevabını **her durumda** silebilir (`DELETE /api/comments/{id}`, 204). Yorum silinince altındaki cevap da silinir. Düzenleme yoktur.
+- İlan silinince yorumları da silinir.
+- Yorum onaylanınca ilan sahibine e-posta gider ("ilanınıza yeni yorum yapıldı", link `FRONTEND_BASE_URL/ilan/{id}`). Cevap onayında mail yoktur.
+
+### Uçlar
+
+| Metot | URL | Kimlik | Gövde | Cevap |
+|---|---|---|---|---|
+| GET | `/api/listings/{id}/comments?page=&size=` | açık (token isteğe bağlı) | | `PageResponse<ListingComment>`. Sadece onaylı yorumlar, en yeni başta. İlan görünür değilse (yayında ya da satılmış araçlar sayfasında değilse) `404` |
+| POST | `/api/listings/{id}/comments` | giriş + doğrulanmış e-posta | `CommentRequest` | 201 `MyComment` (`PENDING_APPROVAL`) |
+| POST | `/api/comments/{id}/reply` | ilan sahibi | `CommentRequest` | 201 `MyComment` (`parentId` dolu, `PENDING_APPROVAL`) |
+| DELETE | `/api/comments/{id}` | yazarı | | 204. Başkasının ya da olmayan yorum `404` |
+| GET | `/api/users/me/comments?page=&size=` | giriş | | `PageResponse<MyComment>`: kendi yorumları ve cevapları, her durumda, en yeni başta |
+| GET | `/api/users/me/comments/quota?listingId=` | giriş | | `CommentQuota`. İlan yoksa `404` |
+
+```ts
+interface CommentRequest {
+  body: string;              // 20–2000 karakter
+  attachmentIds?: number[];  // en fazla 5; sıra = gösterim sırası; her biri complete edilmiş, henüz kullanılmamış ek
+}
+
+interface CommentAttachment {
+  id: number;
+  type: 'JPEG' | 'PNG' | 'WEBP' | 'PDF';
+  url: string;               // herkese açık adres; PDF indirme olarak açılır
+  sizeBytes: number;
+}
+
+interface ListingComment {
+  id: number;
+  authorName: string;        // "Ayşe Y."
+  body: string;
+  attachments: CommentAttachment[];
+  createdAt: string;
+  reply: { id: number; body: string; attachments: CommentAttachment[]; createdAt: string } | null; // onaylı cevap
+  canReply: boolean;         // sadece ilan sahibi için true: bu yoruma şu an cevap yazabilir
+}
+
+interface MyComment {
+  id: number;
+  listingId: number;
+  listingTitle: string;
+  parentId: number | null;   // dolu ise bu bir cevaptır
+  body: string;
+  status: CommentStatus;
+  rejectionReason: string | null; // sadece REJECTED'ta
+  attachments: CommentAttachment[];
+  createdAt: string;
+}
+
+interface CommentQuota { listingId: number; maxComments: number; usedComments: number; remainingComments: number }
+```
+
+`canReply` sahibe "Cevap yaz" butonunu ne zaman göstereceğini söyler: bekleyen ya da yayındaki bir cevap varsa ya da deneme hakkı bittiyse `false`. Sahibin bekleyen/reddedilen cevabı herkese açık listede görünmez; durumunu `GET /api/users/me/comments`'ten takip eder.
+
+### Ek yükleme (kanıt belgesi)
+
+İlan görselleriyle **aynı akış** (bkz. "İlan görselleri (dosya yükleme)"), farklı uçlar ve türler:
+
+```
+1. POST /api/comment-attachments  { contentType, sizeBytes }   → 201 { id, uploadUrl, uploadHeaders, expiresAt }
+2. PUT uploadUrl (gövde: dosya, header: uploadHeaders AYNEN)    → depodan 200
+3. POST /api/comment-attachments/{id}/complete                 → 200 CommentAttachment
+4. Yorumu gönderirken id'leri attachmentIds içinde gönder
+```
+
+| Metot | URL | Cevap |
+|---|---|---|
+| POST | `/api/comment-attachments` | 201 `ImageUpload` (aynı şekil) |
+| POST | `/api/comment-attachments/{id}/complete` | 200 `CommentAttachment` (tekrar çağrılabilir) |
+| DELETE | `/api/comment-attachments/{id}` | 204 (yoruma eklenmemiş dosya; `404` da "silindi" sayılır). Yoruma eklenmişse `409`: yorumu silin |
+
+- `contentType`: `image/jpeg`, `image/png`, `image/webp` veya `application/pdf`; en fazla 10 MB (`400`). Yükleme de doğrulanmış e-posta ister.
+- **PDF için `uploadHeaders` içinde `content-disposition: attachment` da gelir; PUT'a aynen eklenmeli** (imzanın parçası, eksikse depo `403` döner). PDF bu yüzden tarayıcıda açılmaz, indirilir. Linki `download` olarak sunun.
+- Görseller ilan görselleri gibi tarayıcıda küçültülüp EXIF'ten temizlenmeli (GPS!). PDF olduğu gibi yüklenir.
+- Dosya içeriği bildirilen türde değilse complete `422` + `ATTACHMENT_INVALID` (dosya silinir). Dosya depoda yoksa `422` + `ATTACHMENT_NOT_UPLOADED`.
+- Yoruma eklenmemiş 20 dosya sınırı: `422` + `ATTACHMENT_LIMIT_REACHED`. 24 saat içinde bir yoruma eklenmeyen dosyalar otomatik silinir.
+- Yorum gönderilirken ek kullanılamıyorsa (complete edilmemiş, silinmiş, başkasının ya da başka yorumda kullanılmış) `422` + `ATTACHMENT_NOT_AVAILABLE`. Bu durumda yorum kaydedilmez ve **hak tüketilmez**.
+
 ## Yönetim (admin)
 
 Bu uçlar sadece `role: "ADMIN"` olan kullanıcılara açıktır: token yoksa `401`, kullanıcı admin değilse `403`. Frontend admin menüsünü `GET /api/users/me` cevabındaki `role` alanına göre gösterir (bu sadece görünüm kararıdır, yetkiyi backend kontrol eder). Rol istemciden hiçbir zaman alınmaz; ilk admin sunucu yapılandırmasıyla (`APP_ADMIN_EMAILS`) atanır.
@@ -648,6 +744,46 @@ interface AdminListingReport {
 }
 ```
 
+### Yorum onayı
+
+| Metot | URL | Gövde | Cevap |
+|---|---|---|---|
+| GET | `/api/admin/comments?status=&listingId=&page=&size=` | | `PageResponse<AdminComment>`. Varsayılan `status=PENDING_APPROVAL`; en eski başta. `listingId` ile tek ilanın yorumları (ör. `status=APPROVED&listingId=5`: yayındaki bir yorumu kaldırmak için) |
+| POST | `/api/admin/comments/{id}/approve` | `{ "version": number }` | `AdminComment` (`APPROVED`) |
+| POST | `/api/admin/comments/{id}/reject` | `{ "version": number, "reason": string }` | `AdminComment` (`REJECTED`). Yazar `rejectionReason`'ı "Yorumlarım"da görür |
+
+- Yorumlar ve sahibin cevapları aynı kuyruktadır; cevapta `parent` doludur (hangi yoruma cevap verildiği).
+- Onay sadece `PENDING_APPROVAL`'da (`422`). Cevap, cevaplanan yorum hâlâ `APPROVED` ise onaylanabilir (`422` "Cevaplanan yorum yayında değil").
+- Red `PENDING_APPROVAL` veya `APPROVED` yorumda yapılır (yayındaki yorumu kaldırır; altındaki cevap da görünmez olur). `reason` zorunlu, en fazla 500.
+- `version` incelenen sürümdür; arada değiştiyse (ör. sahibi o yoruma cevap gönderdi) `409`: kuyruğu yenileyip tekrar karar verin.
+- Ek dosyalarda kişisel veri (ad, plaka, şasi no) olabilir; admin bunu onaydan önce kontrol etmelidir.
+
+```ts
+interface AdminComment {
+  id: number;
+  version: number;
+  listingId: number;
+  listingTitle: string;
+  listingStatus: ListingStatus;
+  author: { id: number; firstName: string; lastName: string; email: string };
+  parent: { id: number; authorName: string; body: string; status: CommentStatus } | null;
+  body: string;
+  status: CommentStatus;
+  rejectionReason: string | null;
+  attachments: CommentAttachment[];
+  createdAt: string;
+  reviewedAt: string | null;
+}
+```
+
+### Sekme sayıları
+
+| Metot | URL | Cevap |
+|---|---|---|
+| GET | `/api/admin/moderation/counts` | `{ pendingListings: number, pendingComments: number, reportedListings: number }` |
+
+Admin panelindeki sekme rozetleri için (onay bekleyen ilan, onay bekleyen yorum/cevap, açık şikayeti olan ilan sayısı). Onay/red sonrası yeniden çekin.
+
 ### Satış kaydını gizleme
 
 Uydurma satış fiyatına karşı: admin satışı satılmış araçlar sayfasından (liste, özet, detay) kaldırır. İlan `SOLD` kalır; sahibi kendi detayında `sale.hidden: true` görür ve isterse satışı geri alabilir.
@@ -672,12 +808,14 @@ Gizlemeyi geri alan uç yoktur. Admin bu işlemi satılmış araç detayından (
 | `FromWho` | `OWNER` Sahibinden · `GALLERY` Galeriden · `AUTHORIZED_DEALER` Yetkili bayiden |
 | `ReportReason` | `FAKE_OR_MISLEADING` Sahte veya yanıltıcı ilan · `FRAUD_SUSPECTED` Dolandırıcılık şüphesi · `WRONG_INFO` Yanlış bilgi (fiyat, km vb.) · `INAPPROPRIATE_CONTENT` Uygunsuz içerik · `ALREADY_SOLD` Araç satılmış · `OTHER` Diğer |
 | `ReportStatus` | `OPEN` İnceleniyor · `DISMISSED` Reddedildi (işlem yapılmadı) · `ACTION_TAKEN` İlan kaldırıldı |
+| `CommentStatus` | `PENDING_APPROVAL` Onay bekliyor · `APPROVED` Yayında · `REJECTED` Reddedildi |
 
 ## Bilinen kısıtlar
 
 - Görseller sunucuda yeniden boyutlandırılmaz ve küçük önizleme (thumbnail) üretilmez; küçültme ve EXIF temizliği frontend'de yapılır.
 - Fiyat filtresi kur çevirmez.
-- Satıcıyla iletişim sadece telefonla (mesajlaşma yok); e-posta hiç paylaşılmaz.
+- Satıcıyla iletişim sadece telefonla (mesajlaşma yok); e-posta hiç paylaşılmaz. İlan yorumları birebir sohbet değildir: herkese açık, onaydan geçer, yorum başına tek cevap.
+- Yorumlar düzenlenemez (sil + yeniden yaz; ama hak tüketir).
 - Katalogda adlandırma ve silme yok (sadece ekleme).
 
 Backend tarafında uyumsuzluk veya eksik bulunursa backend reposunda düzeltilir; frontend sözleşmeyi kendi tarafında değiştirmemeli.
