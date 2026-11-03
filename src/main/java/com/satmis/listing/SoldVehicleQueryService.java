@@ -2,7 +2,6 @@ package com.satmis.listing;
 
 import com.satmis.common.ApiException;
 import com.satmis.common.PageResponse;
-import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingSearchCriteria;
 import com.satmis.listing.dto.SalePriceSummaryResponse;
 import com.satmis.listing.dto.SoldVehicleDetailResponse;
@@ -40,13 +39,8 @@ public class SoldVehicleQueryService {
 
     public SoldVehicleDetailResponse getDetail(Long listingId) {
         Listing listing = listingRepository.findDetailById(listingId)
-                .filter(SoldVehicleQueryService::isPubliclySold)
+                .filter(Listing::isPubliclySold)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Satılmış araç bulunamadı"));
         return listingMapper.toSoldDetail(listing, objectStorage);
-    }
-
-    // Same rule as ListingSpecifications.publiclySoldMatching
-    private static boolean isPubliclySold(Listing listing) {
-        return listing.getStatus() == ListingStatus.SOLD && !listing.isSaleHidden() && listing.getOwner().isEnabled();
     }
 }

@@ -62,6 +62,23 @@ public final class MailpitInbox {
         }
     }
 
+    // Waits until a mail whose subject contains `subject` reached `email` and returns its text
+    public static String textMailedTo(GenericContainer<?> mailpit, String email, String subject) throws Exception {
+        Instant deadline = Instant.now().plus(MAIL_WAIT);
+        while (true) {
+            for (String id : messageIds(mailpit, email)) {
+                String message = get(mailpit, "/api/v1/message/" + id);
+                if (JsonPath.<String>read(message, "$.Subject").contains(subject)) {
+                    return JsonPath.read(message, "$.Text");
+                }
+            }
+            if (Instant.now().isAfter(deadline)) {
+                throw new AssertionError("Expected a mail '" + subject + "' to " + email);
+            }
+            Thread.sleep(POLL_INTERVAL);
+        }
+    }
+
     public static List<String> messageIds(GenericContainer<?> mailpit, String email) throws Exception {
         String query = URLEncoder.encode("to:\"" + email + "\"", StandardCharsets.UTF_8);
         return JsonPath.read(get(mailpit, "/api/v1/search?query=" + query), "$.messages[*].ID");

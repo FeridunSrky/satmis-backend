@@ -152,6 +152,11 @@ public class Listing extends AuditableEntity {
         return status == ListingStatus.ACTIVE && owner.isEnabled();
     }
 
+    // Shown on the sold vehicles page; same rule as ListingSpecifications.publiclySoldMatching
+    public boolean isPubliclySold() {
+        return status == ListingStatus.SOLD && !saleHidden && owner.isEnabled();
+    }
+
     public void setVehicleDetail(VehicleDetail vehicleDetail) {
         this.vehicleDetail = vehicleDetail;
         if (vehicleDetail != null) {

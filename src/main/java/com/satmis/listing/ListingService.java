@@ -4,6 +4,7 @@ import com.satmis.catalog.District;
 import com.satmis.catalog.DistrictRepository;
 import com.satmis.catalog.VehicleSeries;
 import com.satmis.catalog.VehicleSeriesRepository;
+import com.satmis.comment.CommentAttachmentService;
 import com.satmis.common.ApiException;
 import com.satmis.enums.ListingStatus;
 import com.satmis.listing.dto.ListingDetailResponse;
@@ -42,6 +43,7 @@ public class ListingService {
     private final ListingMapper listingMapper;
     private final ListingDetailAssembler listingDetailAssembler;
     private final ListingImageService listingImageService;
+    private final CommentAttachmentService commentAttachmentService;
 
     @Transactional
     public ListingDetailResponse create(Long ownerId, ListingRequest request) {
@@ -123,6 +125,8 @@ public class ListingService {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "Satılmış ilan silinemez");
         }
         listingImageService.releaseImages(listing);
+        // Comments are deleted with the listing by the database; their files must be released first
+        commentAttachmentService.releaseForListing(listingId);
         listingRepository.delete(listing);
     }
 

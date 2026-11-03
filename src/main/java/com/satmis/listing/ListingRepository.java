@@ -1,5 +1,6 @@
 package com.satmis.listing;
 
+import com.satmis.enums.ListingStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -40,4 +41,6 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
     @Modifying
     @Query("update Listing l set l.viewCount = l.viewCount + 1 where l.id = :id")
     void incrementViewCount(@Param("id") Long id);
+
+    long countByStatus(ListingStatus status);
 }
