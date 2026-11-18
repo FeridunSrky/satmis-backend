@@ -623,6 +623,8 @@ interface MyComment {
 interface CommentQuota { listingId: number; maxComments: number; usedComments: number; remainingComments: number }
 ```
 
+Aynı ek id'si `attachmentIds`'te iki kez geçerse `400`: mesaj "Doğrulama hatası", ayrıntı `errors.attachmentIds`'te ("Aynı dosya bir yoruma iki kez eklenemez").
+
 `canReply` sahibe "Cevap yaz" butonunu ne zaman göstereceğini söyler: bekleyen ya da yayındaki bir cevap varsa ya da deneme hakkı bittiyse `false`. Sahibin bekleyen/reddedilen cevabı herkese açık listede görünmez; durumunu `GET /api/users/me/comments`'ten takip eder.
 
 ### Ek yükleme (kanıt belgesi)
