@@ -123,7 +123,7 @@ class PasswordResetIT {
         forgotPassword(email);
         String token = resetTokenMailedTo(email, 1);
         jdbcTemplate.update("update password_reset_tokens set expiry_date = ? where token_hash = ?",
-                Timestamp.from(Instant.now().minusSeconds(1)), RefreshTokenService.hash(token));
+                Timestamp.from(Instant.now().minusSeconds(1)), SecureTokens.hash(token));
 
         resetPassword(token, NEW_PASSWORD).andExpect(status().isBadRequest());
         login(email, OLD_PASSWORD).andExpect(status().isOk());
@@ -170,7 +170,7 @@ class PasswordResetIT {
         List<String> storedHashes = jdbcTemplate.queryForList("""
                 select t.token_hash from password_reset_tokens t join users u on u.id = t.user_id
                 where u.email = ?""", String.class, email);
-        assertThat(storedHashes).containsExactly(RefreshTokenService.hash(token));
+        assertThat(storedHashes).containsExactly(SecureTokens.hash(token));
     }
 
     private String register(String email) throws Exception {

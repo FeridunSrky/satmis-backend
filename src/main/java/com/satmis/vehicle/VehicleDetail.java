@@ -14,7 +14,6 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.MapsId;
@@ -26,12 +25,7 @@ import lombok.Setter;
 
 // Shares its primary key with listings: exactly one detail row per listing
 @Entity
-@Table(name = "vehicle_details", indexes = {
-        @Index(name = "idx_vehicle_details_series", columnList = "series_id"),
-        @Index(name = "idx_vehicle_details_model_year", columnList = "model_year"),
-        @Index(name = "idx_vehicle_details_kilometer", columnList = "kilometer"),
-        @Index(name = "idx_vehicle_details_fuel_type", columnList = "fuel_type")
-})
+@Table(name = "vehicle_details")
 @Getter
 @Setter
 @NoArgsConstructor

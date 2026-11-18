@@ -12,7 +12,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -32,12 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "listings", indexes = {
-        @Index(name = "idx_listings_status_created_at", columnList = "status, created_at"),
-        @Index(name = "idx_listings_price", columnList = "price"),
-        @Index(name = "idx_listings_user", columnList = "user_id"),
-        @Index(name = "idx_listings_district", columnList = "district_id")
-})
+@Table(name = "listings")
 @Getter
 @Setter
 @NoArgsConstructor

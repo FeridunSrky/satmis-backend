@@ -10,10 +10,14 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 // Adapter around the S3 API (R2 in prod, SeaweedFS in dev); callers never see SDK types or exceptions.
@@ -29,21 +33,22 @@ public class ObjectStorage {
     // The browser adds these itself and refuses to let scripts set them
     private static final Set<String> BROWSER_SET_HEADERS = Set.of("host", "content-length");
 
+    private static final DateTimeFormatter KEY_MONTH = DateTimeFormatter.ofPattern("yyyy/MM").withZone(ZoneOffset.UTC);
+
     private final S3Client s3Client;
     private final S3Presigner presigner;
     private final StorageProperties properties;
 
-    /**
-     * Signs a one-off PUT for exactly this key, type and size. The storage rejects an upload whose body or
-     * headers differ from what was signed, so the client cannot upload a larger file or another type.
-     */
-    public PresignedUpload presignUpload(String key, String contentType, long contentLength, Duration validFor) {
-        return presignUpload(key, contentType, contentLength, validFor, false);
+    // Random, unguessable names that are never reused; nothing in the key points back to the user
+    public static String newKey(String folder, String extension) {
+        return folder + "/" + KEY_MONTH.format(Instant.now()) + "/" + UUID.randomUUID() + "." + extension;
     }
 
     /**
-     * Like {@link #presignUpload(String, String, long, Duration)}; with downloadOnly the object is served with
-     * "Content-Disposition: attachment", so browsers save it instead of rendering it (PDFs can carry scripts).
+     * Signs a one-off PUT for exactly this key, type and size. The storage rejects an upload whose body or
+     * headers differ from what was signed, so the client cannot upload a larger file or another type.
+     * With downloadOnly the object is served with "Content-Disposition: attachment", so browsers save it instead
+     * of rendering it (PDFs can carry scripts).
      */
     public PresignedUpload presignUpload(String key, String contentType, long contentLength, Duration validFor,
                                          boolean downloadOnly) {

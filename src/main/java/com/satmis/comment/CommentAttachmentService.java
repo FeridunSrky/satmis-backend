@@ -7,6 +7,7 @@ import com.satmis.enums.AttachmentType;
 import com.satmis.enums.CommentAttachmentStatus;
 import com.satmis.listing.dto.ImageUploadRequest;
 import com.satmis.listing.dto.ImageUploadResponse;
+import com.satmis.storage.DeletedFile;
 import com.satmis.storage.ObjectStorage;
 import com.satmis.storage.PresignedUpload;
 import com.satmis.storage.StoredObject;
@@ -19,16 +20,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -41,7 +38,6 @@ public class CommentAttachmentService {
 
     private static final Set<CommentAttachmentStatus> UNATTACHED =
             EnumSet.of(CommentAttachmentStatus.PENDING, CommentAttachmentStatus.UPLOADED);
-    private static final DateTimeFormatter KEY_MONTH = DateTimeFormatter.ofPattern("yyyy/MM").withZone(ZoneOffset.UTC);
 
     private final CommentAttachmentRepository attachmentRepository;
     private final CommentAuthorPolicy commentAuthorPolicy;
@@ -71,7 +67,7 @@ public class CommentAttachmentService {
         attachment.setStatus(CommentAttachmentStatus.PENDING);
         attachment.setFileType(fileType);
         attachment.setSizeBytes(request.sizeBytes());
-        attachment.setObjectKey(newObjectKey(fileType));
+        attachment.setObjectKey(ObjectStorage.newKey("comments", fileType.extension()));
         attachmentRepository.save(attachment);
 
         PresignedUpload upload = objectStorage.presignUpload(attachment.getObjectKey(), fileType.mimeType(),
@@ -113,9 +109,6 @@ public class CommentAttachmentService {
     public void attach(ListingComment comment, List<Long> attachmentIds) {
         if (attachmentIds.stream().anyMatch(Objects::isNull)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Dosya listesi boş değer içeremez");
-        }
-        if (attachmentIds.stream().distinct().count() != attachmentIds.size()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Aynı dosya bir yoruma iki kez eklenemez");
         }
         if (attachmentIds.isEmpty()) {
             return;
@@ -163,7 +156,7 @@ public class CommentAttachmentService {
             attachment.setDisplayOrder(null);
         }
         eventPublisher.publishEvent(new CommentAttachmentsDeletedEvent(attachments.stream()
-                .map(attachment -> new DeletedAttachmentView(attachment.getId(), attachment.getObjectKey()))
+                .map(attachment -> new DeletedFile(attachment.getId(), attachment.getObjectKey()))
                 .toList()));
     }
 
@@ -185,11 +178,6 @@ public class CommentAttachmentService {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ErrorCode.ATTACHMENT_INVALID,
                     "Yüklenen dosya geçerli bir " + attachment.getFileType() + " dosyası değil");
         }
-    }
-
-    // Random, unguessable names; nothing in the key points back to the user
-    private static String newObjectKey(AttachmentType fileType) {
-        return "comments/" + KEY_MONTH.format(Instant.now()) + "/" + UUID.randomUUID() + "." + fileType.extension();
     }
 
     // Other users' files are reported as missing too, so ids cannot be probed

@@ -3,6 +3,7 @@ package com.satmis.security;
 import com.satmis.TestJwtSecret;
 import com.satmis.enums.Role;
 import com.satmis.user.User;
+import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -33,23 +34,33 @@ class JwtServiceTest {
     }
 
     @Test
-    void generateAccessToken_validSecret_producesTokenValidForSameUser() {
+    void generateAccessToken_validSecret_carriesUsername() {
         JwtService jwtService = new JwtService(properties(TestJwtSecret.random()));
-        CustomUserDetails userDetails = new CustomUserDetails(user("ayse@satmis.com"));
 
-        String token = jwtService.generateAccessToken(userDetails);
+        String token = jwtService.generateAccessToken(new CustomUserDetails(user("ayse@satmis.com")));
 
         assertThat(jwtService.extractUsername(token)).isEqualTo("ayse@satmis.com");
-        assertThat(jwtService.isValid(token, userDetails)).isTrue();
-        assertThat(jwtService.isValid(token, new CustomUserDetails(user("other@satmis.com")))).isFalse();
     }
 
     @Test
-    void isValid_tokenSignedWithAnotherSecret_returnsFalse() {
+    void extractUsername_tokenSignedWithAnotherSecret_throwsJwtException() {
         CustomUserDetails userDetails = new CustomUserDetails(user("ayse@satmis.com"));
         String foreignToken = new JwtService(properties(TestJwtSecret.random())).generateAccessToken(userDetails);
+        JwtService jwtService = new JwtService(properties(TestJwtSecret.random()));
 
-        assertThat(new JwtService(properties(TestJwtSecret.random())).isValid(foreignToken, userDetails)).isFalse();
+        assertThatThrownBy(() -> jwtService.extractUsername(foreignToken)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    void extractUsername_expiredToken_throwsJwtException() {
+        String secret = TestJwtSecret.random();
+        // A negative lifetime puts the expiry a minute in the past, so the test does not depend on timing
+        JwtService expiringService = new JwtService(
+                new JwtProperties(secret, -60_000, REFRESH_EXPIRATION_MS, Duration.ofSeconds(30)));
+        String token = expiringService.generateAccessToken(new CustomUserDetails(user("ayse@satmis.com")));
+
+        assertThatThrownBy(() -> new JwtService(properties(secret)).extractUsername(token))
+                .isInstanceOf(JwtException.class);
     }
 
     private static JwtProperties properties(String secret) {

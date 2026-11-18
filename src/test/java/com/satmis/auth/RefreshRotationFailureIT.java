@@ -70,7 +70,7 @@ class RefreshRotationFailureIT {
 
         assertThat(jdbcTemplate.queryForObject(
                 "select not revoked and rotated_at is null from refresh_tokens where token_hash = ?",
-                Boolean.class, RefreshTokenService.hash(oldToken))).isTrue();
+                Boolean.class, SecureTokens.hash(oldToken))).isTrue();
 
         reset(refreshTokenService);
         mockMvc.perform(RefreshCookies.refresh(oldToken))

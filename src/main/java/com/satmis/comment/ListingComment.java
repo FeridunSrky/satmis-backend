@@ -9,7 +9,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -30,12 +29,7 @@ import java.util.List;
 // A comment under a listing, or the owner's reply to one (parent set). One waiting or published reply per comment
 // is enforced by a partial unique index (V12).
 @Entity
-@Table(name = "listing_comments", indexes = {
-        @Index(name = "idx_listing_comments_parent", columnList = "parent_id"),
-        @Index(name = "idx_listing_comments_listing_status", columnList = "listing_id, status, created_at"),
-        @Index(name = "idx_listing_comments_author_created_at", columnList = "author_id, created_at"),
-        @Index(name = "idx_listing_comments_status_created_at", columnList = "status, created_at")
-})
+@Table(name = "listing_comments")
 @Getter
 @Setter
 @NoArgsConstructor

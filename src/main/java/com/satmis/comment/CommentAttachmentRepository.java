@@ -1,6 +1,7 @@
 package com.satmis.comment;
 
 import com.satmis.enums.CommentAttachmentStatus;
+import com.satmis.storage.DeletedFile;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -39,11 +40,11 @@ public interface CommentAttachmentRepository extends JpaRepository<CommentAttach
                     @Param("createdBefore") Instant createdBefore);
 
     @Query("""
-            select new com.satmis.comment.DeletedAttachmentView(a.id, a.objectKey)
+            select new com.satmis.storage.DeletedFile(a.id, a.objectKey)
             from CommentAttachment a
             where a.status = com.satmis.enums.CommentAttachmentStatus.DELETED
             order by a.id""")
-    List<DeletedAttachmentView> findDeleted(Pageable pageable);
+    List<DeletedFile> findDeleted(Pageable pageable);
 
     @Transactional
     @Modifying

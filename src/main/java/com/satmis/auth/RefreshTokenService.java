@@ -20,7 +20,7 @@ public class RefreshTokenService {
         String rawToken = SecureTokens.generate();
 
         RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setTokenHash(hash(rawToken));
+        refreshToken.setTokenHash(SecureTokens.hash(rawToken));
         refreshToken.setExpiryDate(Instant.now().plusMillis(jwtProperties.refreshExpirationMs()));
         refreshToken.setUser(user);
         refreshTokenRepository.save(refreshToken);
@@ -32,9 +32,5 @@ public class RefreshTokenService {
     @Transactional
     public int deleteExpired() {
         return refreshTokenRepository.deleteAllExpiredBefore(Instant.now());
-    }
-
-    public static String hash(String rawToken) {
-        return SecureTokens.hash(rawToken);
     }
 }

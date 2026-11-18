@@ -1,26 +1,18 @@
 package com.satmis.security;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.WeakKeyException;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.time.Instant;
 import java.util.Date;
 
-@Slf4j
 @Service
 public class JwtService {
-
-    private static final String CLAIM_USER_ID = "uid";
-    private static final String CLAIM_ROLE = "role";
 
     private final SecretKey signingKey;
     private final long accessExpirationMs;
@@ -42,41 +34,28 @@ public class JwtService {
         }
     }
 
+    // Only the e-mail is carried: every request reloads the user, so role and enabled come from the database
     public String generateAccessToken(CustomUserDetails userDetails) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(userDetails.getUsername())
-                .claim(CLAIM_USER_ID, userDetails.getId())
-                .claim(CLAIM_ROLE, userDetails.getRole().name())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusMillis(accessExpirationMs)))
                 .signWith(signingKey)
                 .compact();
     }
 
-    public String extractUsername(String token) {
-        return parseClaims(token).getSubject();
-    }
-
-    public boolean isValid(String token, UserDetails userDetails) {
-        try {
-            return userDetails.getUsername().equals(parseClaims(token).getSubject());
-        } catch (JwtException | IllegalArgumentException ex) {
-            log.debug("JWT validation failed: {}", ex.getClass().getSimpleName());
-            return false;
-        }
-    }
-
-    public long getAccessExpirationMs() {
-        return accessExpirationMs;
-    }
-
     // Verifies signature and expiry; throws JwtException otherwise
-    private Claims parseClaims(String token) {
+    public String extractUsername(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey)
                 .build()
                 .parseSignedClaims(token)
-                .getPayload();
+                .getPayload()
+                .getSubject();
+    }
+
+    public long getAccessExpirationMs() {
+        return accessExpirationMs;
     }
 }

@@ -5,6 +5,7 @@ import com.satmis.common.ErrorCode;
 import com.satmis.enums.ImageType;
 import com.satmis.enums.ListingImageStatus;
 import com.satmis.listing.dto.ImageUploadRequest;
+import com.satmis.storage.DeletedFile;
 import com.satmis.storage.ObjectStorage;
 import com.satmis.storage.StorageException;
 import com.satmis.storage.StoredObject;
@@ -109,7 +110,7 @@ class ListingImageServiceTest {
         assertThatThrownBy(() -> service.completeUpload(USER_ID, IMAGE_ID))
                 .isInstanceOfSatisfying(ApiException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.IMAGE_INVALID));
-        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(IMAGE_ID, KEY))));
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedFile(IMAGE_ID, KEY))));
         assertThat(image.getStatus()).isEqualTo(ListingImageStatus.DELETED);
     }
 
@@ -153,7 +154,7 @@ class ListingImageServiceTest {
         service.deleteUpload(USER_ID, IMAGE_ID);
 
         assertThat(image.getStatus()).isEqualTo(ListingImageStatus.DELETED);
-        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(IMAGE_ID, KEY))));
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedFile(IMAGE_ID, KEY))));
     }
 
     @Test
@@ -191,7 +192,7 @@ class ListingImageServiceTest {
         assertThat(kept.getDisplayOrder()).isEqualTo(1);
         assertThat(dropped.getStatus()).isEqualTo(ListingImageStatus.DELETED);
         assertThat(dropped.getListing()).isNull();
-        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedImageView(11L, KEY))));
+        verify(eventPublisher).publishEvent(new ListingImagesDeletedEvent(List.of(new DeletedFile(11L, KEY))));
     }
 
     @Test

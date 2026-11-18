@@ -13,7 +13,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.AuthenticationEntryPoint;
-import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -44,7 +43,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith(BEARER_PREFIX)
                 && SecurityContextHolder.getContext().getAuthentication() == null
-                && !authenticate(header.substring(BEARER_PREFIX.length()), request)) {
+                && !authenticate(header.substring(BEARER_PREFIX.length()))) {
             authenticationEntryPoint.commence(request, response,
                     new InsufficientAuthenticationException("Bearer token rejected"));
             return;
@@ -52,13 +51,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean authenticate(String token, HttpServletRequest request) {
+    private boolean authenticate(String token) {
         try {
             CustomUserDetails userDetails = userDetailsService.loadUserByUsername(jwtService.extractUsername(token));
-            if (userDetails.isEnabled() && jwtService.isValid(token, userDetails)) {
+            if (userDetails.isEnabled()) {
                 var authentication = new UsernamePasswordAuthenticationToken(
                         userDetails, null, userDetails.getAuthorities());
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 return true;
             }
