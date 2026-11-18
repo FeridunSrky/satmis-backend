@@ -195,7 +195,7 @@ class AuthFlowIT {
         ResultActions rotated = refresh(firstRefresh).andExpect(status().isOk());
         String secondRefresh = RefreshCookies.from(rotated);
         jdbcTemplate.update("update refresh_tokens set rotated_at = ? where token_hash = ?",
-                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), RefreshTokenService.hash(firstRefresh));
+                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), SecureTokens.hash(firstRefresh));
         assertThat(secondRefresh).isNotEqualTo(firstRefresh);
 
         refresh(firstRefresh).andExpect(status().isUnauthorized());
@@ -247,7 +247,7 @@ class AuthFlowIT {
                 String.class, email);
 
         assertThat(storedHashes).hasSize(1).doesNotContain(refreshToken);
-        assertThat(storedHashes.getFirst()).isEqualTo(RefreshTokenService.hash(refreshToken));
+        assertThat(storedHashes.getFirst()).isEqualTo(SecureTokens.hash(refreshToken));
     }
 
     private ResultActions register(String email) throws Exception {

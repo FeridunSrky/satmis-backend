@@ -172,6 +172,9 @@ class ListingCommentIT {
         comment(commenter.token(), liveListingId, "      kısa yorum         ", List.of())
                 .andExpect(status().isBadRequest());
         comment(commenter.token(), liveListingId, BODY, sixAttachments).andExpect(status().isBadRequest());
+        comment(commenter.token(), liveListingId, BODY, List.of(sixAttachments.getFirst(), sixAttachments.getFirst()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.attachmentIds").exists());
         comment(commenter.token(), liveListingId, BODY, List.of(othersAttachment))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("ATTACHMENT_NOT_AVAILABLE"));

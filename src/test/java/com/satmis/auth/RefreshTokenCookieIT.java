@@ -209,7 +209,7 @@ class RefreshTokenCookieIT {
         String secondToken = refreshCookieValue(refreshWithCookie(firstToken, FRONTEND_ORIGIN)
                 .andExpect(status().isOk()).andReturn());
         jdbcTemplate.update("update refresh_tokens set rotated_at = ? where token_hash = ?",
-                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), RefreshTokenService.hash(firstToken));
+                Timestamp.from(Instant.now().minus(Duration.ofMinutes(1))), SecureTokens.hash(firstToken));
 
         refreshWithCookie(firstToken, FRONTEND_ORIGIN)
                 .andExpect(status().isUnauthorized())

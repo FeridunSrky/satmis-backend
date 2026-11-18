@@ -57,7 +57,7 @@ class ObjectStorageIT {
         String key = newKey();
         byte[] file = bytes(1000);
 
-        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR);
+        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR, false);
 
         assertThat(upload.expiresAt()).isCloseTo(Instant.now().plus(VALID_FOR), within(Duration.ofSeconds(30)));
         assertThat(upload.headers()).containsKeys("content-type", "cache-control").doesNotContainKeys("host", "content-length");
@@ -74,7 +74,7 @@ class ObjectStorageIT {
     @Test
     void presignUpload_largerFileThanSigned_isRejectedByStorage() throws Exception {
         String key = newKey();
-        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, 1000, VALID_FOR);
+        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, 1000, VALID_FOR, false);
 
         assertThat(put(upload, bytes(5000))).isEqualTo(403);
         assertThat(objectStorage.find(key)).isEmpty();
@@ -84,7 +84,7 @@ class ObjectStorageIT {
     void presignUpload_otherContentTypeThanSigned_isRejectedByStorage() throws Exception {
         String key = newKey();
         byte[] file = bytes(1000);
-        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR);
+        PresignedUpload upload = objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR, false);
 
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(upload.url()))
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(file));
@@ -104,7 +104,7 @@ class ObjectStorageIT {
     void readFirstBytes_storedFile_returnsOnlyThePrefix() throws Exception {
         String key = newKey();
         byte[] file = bytes(1000);
-        put(objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR), file);
+        put(objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR, false), file);
 
         assertThat(objectStorage.readFirstBytes(key, 16)).containsExactly(Arrays.copyOf(file, 16));
     }
@@ -113,7 +113,7 @@ class ObjectStorageIT {
     void delete_storedFile_removesItAndCanBeRepeated() throws Exception {
         String key = newKey();
         byte[] file = bytes(1000);
-        put(objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR), file);
+        put(objectStorage.presignUpload(key, JPEG, file.length, VALID_FOR, false), file);
 
         objectStorage.delete(key);
         objectStorage.delete(key);

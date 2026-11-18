@@ -91,7 +91,7 @@ class EmailVerificationIT {
         String accessToken = register(email);
         String token = tokensMailedTo(email, 1).getFirst();
         jdbcTemplate.update("update email_verification_tokens set expiry_date = ? where token_hash = ?",
-                Timestamp.from(Instant.now().minusSeconds(1)), RefreshTokenService.hash(token));
+                Timestamp.from(Instant.now().minusSeconds(1)), SecureTokens.hash(token));
 
         verify(token).andExpect(status().isBadRequest());
         currentUser(accessToken).andExpect(jsonPath("$.emailVerified").value(false));
@@ -140,7 +140,7 @@ class EmailVerificationIT {
         List<String> storedHashes = jdbcTemplate.queryForList("""
                 select t.token_hash from email_verification_tokens t join users u on u.id = t.user_id
                 where u.email = ?""", String.class, email);
-        assertThat(storedHashes).containsExactly(RefreshTokenService.hash(token));
+        assertThat(storedHashes).containsExactly(SecureTokens.hash(token));
     }
 
     private String register(String email) throws Exception {

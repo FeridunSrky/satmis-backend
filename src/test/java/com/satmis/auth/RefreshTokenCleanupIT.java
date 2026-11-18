@@ -85,7 +85,7 @@ class RefreshTokenCleanupIT {
     }
 
     private String insertToken(Long userId, Instant expiryDate, boolean revoked) {
-        String tokenHash = RefreshTokenService.hash(UUID.randomUUID().toString());
+        String tokenHash = SecureTokens.hash(UUID.randomUUID().toString());
         jdbcTemplate.update("insert into refresh_tokens (user_id, token_hash, expiry_date, revoked) values (?, ?, ?, ?)",
                 userId, tokenHash, Timestamp.from(expiryDate), revoked);
         return tokenHash;

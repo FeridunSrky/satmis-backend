@@ -1,6 +1,7 @@
 package com.satmis.listing;
 
 import com.satmis.enums.ListingImageStatus;
+import com.satmis.storage.DeletedFile;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -39,11 +40,11 @@ public interface ListingImageRepository extends JpaRepository<ListingImage, Long
                     @Param("createdBefore") Instant createdBefore);
 
     @Query("""
-            select new com.satmis.listing.DeletedImageView(i.id, i.objectKey)
+            select new com.satmis.storage.DeletedFile(i.id, i.objectKey)
             from ListingImage i
             where i.status = com.satmis.enums.ListingImageStatus.DELETED
             order by i.id""")
-    List<DeletedImageView> findDeleted(Pageable pageable);
+    List<DeletedFile> findDeleted(Pageable pageable);
 
     @Transactional
     @Modifying

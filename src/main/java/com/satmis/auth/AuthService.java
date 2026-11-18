@@ -67,7 +67,7 @@ public class AuthService {
     // The mass revocation on token reuse must be committed even though the request fails
     @Transactional(noRollbackFor = ApiException.class)
     public AuthSession refresh(String rawToken) {
-        RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(RefreshTokenService.hash(rawToken))
+        RefreshToken refreshToken = refreshTokenRepository.findByTokenHash(SecureTokens.hash(rawToken))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Geçersiz refresh token"));
         User user = refreshToken.getUser();
 
@@ -106,7 +106,7 @@ public class AuthService {
 
     @Transactional
     public void logout(String rawToken) {
-        refreshTokenRepository.findByTokenHash(RefreshTokenService.hash(rawToken))
+        refreshTokenRepository.findByTokenHash(SecureTokens.hash(rawToken))
                 .ifPresent(refreshToken -> refreshToken.setRevoked(true));
     }
 

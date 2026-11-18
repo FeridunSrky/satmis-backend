@@ -9,7 +9,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -19,11 +18,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "listing_images", indexes = {
-        @Index(name = "idx_listing_images_listing", columnList = "listing_id"),
-        @Index(name = "idx_listing_images_owner_status", columnList = "owner_id, status"),
-        @Index(name = "idx_listing_images_status_created_at", columnList = "status, created_at")
-})
+@Table(name = "listing_images")
 @Getter
 @Setter
 @NoArgsConstructor

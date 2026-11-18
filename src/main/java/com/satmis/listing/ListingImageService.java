@@ -7,6 +7,7 @@ import com.satmis.enums.ListingImageStatus;
 import com.satmis.listing.dto.ImageUploadRequest;
 import com.satmis.listing.dto.ImageUploadResponse;
 import com.satmis.listing.dto.UploadedImageResponse;
+import com.satmis.storage.DeletedFile;
 import com.satmis.storage.ObjectStorage;
 import com.satmis.storage.PresignedUpload;
 import com.satmis.storage.StoredObject;
@@ -19,15 +20,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -39,7 +36,6 @@ import java.util.stream.Collectors;
 public class ListingImageService {
 
     private static final Set<ListingImageStatus> UNATTACHED = EnumSet.of(ListingImageStatus.PENDING, ListingImageStatus.UPLOADED);
-    private static final DateTimeFormatter KEY_MONTH = DateTimeFormatter.ofPattern("yyyy/MM").withZone(ZoneOffset.UTC);
 
     private final ListingImageRepository listingImageRepository;
     private final ListingOwnerPolicy listingOwnerPolicy;
@@ -67,11 +63,11 @@ public class ListingImageService {
         image.setStatus(ListingImageStatus.PENDING);
         image.setImageType(imageType);
         image.setSizeBytes(request.sizeBytes());
-        image.setObjectKey(newObjectKey(imageType));
+        image.setObjectKey(ObjectStorage.newKey("listings", imageType.extension()));
         listingImageRepository.save(image);
 
         PresignedUpload upload = objectStorage.presignUpload(image.getObjectKey(), imageType.mimeType(),
-                request.sizeBytes(), properties.uploadUrlTtl());
+                request.sizeBytes(), properties.uploadUrlTtl(), false);
         return new ImageUploadResponse(image.getId(), upload.url(), upload.headers(), upload.expiresAt());
     }
 
@@ -161,7 +157,7 @@ public class ListingImageService {
             image.setCover(false);
         }
         eventPublisher.publishEvent(new ListingImagesDeletedEvent(images.stream()
-                .map(image -> new DeletedImageView(image.getId(), image.getObjectKey()))
+                .map(image -> new DeletedFile(image.getId(), image.getObjectKey()))
                 .toList()));
     }
 
@@ -188,11 +184,6 @@ public class ListingImageService {
         return listingImageRepository.findByIdAndOwnerId(imageId, userId)
                 .filter(image -> image.getStatus() != ListingImageStatus.DELETED)
                 .orElseThrow(ListingImageService::imageNotFound);
-    }
-
-    // Random, unguessable names; nothing in the key points back to the user
-    private static String newObjectKey(ImageType imageType) {
-        return "listings/" + KEY_MONTH.format(Instant.now()) + "/" + UUID.randomUUID() + "." + imageType.extension();
     }
 
     private static ApiException imageNotFound() {

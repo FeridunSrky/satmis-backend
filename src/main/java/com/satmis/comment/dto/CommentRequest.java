@@ -2,6 +2,7 @@ package com.satmis.comment.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.UniqueElements;
 
 import java.util.List;
 
@@ -11,6 +12,7 @@ public record CommentRequest(
         @Size(min = 20, max = 2000, message = "Yorum 20 ile 2000 karakter arasında olmalıdır")
         String body,
 
+        @UniqueElements(message = "Aynı dosya bir yoruma iki kez eklenemez")
         List<Long> attachmentIds
 ) {
 

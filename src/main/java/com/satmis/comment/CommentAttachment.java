@@ -9,7 +9,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -20,11 +19,7 @@ import lombok.Setter;
 
 // Evidence for a comment (photo or PDF report), uploaded to object storage before the comment is sent
 @Entity
-@Table(name = "comment_attachments", indexes = {
-        @Index(name = "idx_comment_attachments_comment", columnList = "comment_id"),
-        @Index(name = "idx_comment_attachments_owner_status", columnList = "owner_id, status"),
-        @Index(name = "idx_comment_attachments_status_created_at", columnList = "status, created_at")
-})
+@Table(name = "comment_attachments")
 @Getter
 @Setter
 @NoArgsConstructor
