@@ -1,7 +1,7 @@
 package com.satmis.listing;
 
 import com.jayway.jsonpath.JsonPath;
-import com.satmis.TestImages;
+import com.satmis.TestApi;
 import com.satmis.TestJwtSecret;
 import com.satmis.TestListings;
 import org.junit.jupiter.api.Test;
@@ -9,27 +9,22 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -40,6 +35,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Import(TestApi.class)
 @SpringBootTest
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -48,7 +44,6 @@ class ListingModerationIT {
 
     private static final String LISTINGS = "/api/listings";
     private static final String ADMIN_LISTINGS = "/api/admin/listings";
-    private static final String PASSWORD = "Sifre1234";
 
     @Container
     @ServiceConnection
@@ -63,25 +58,25 @@ class ListingModerationIT {
     private MockMvc mockMvc;
 
     @Autowired
-    private JsonMapper jsonMapper;
+    private TestApi api;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Test
     void create_newListing_isHiddenUntilAnAdminApprovesIt() throws Exception {
-        String admin = adminToken();
-        String owner = sellerToken();
-        long listingId = createListing(owner, listingBody(owner));
+        String admin = api.adminToken();
+        String owner = api.verifiedToken();
+        long listingId = createListing(owner, api.listingBody(owner));
 
-        perform(get(LISTINGS + "/{id}", listingId), owner, null)
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"));
         mockMvc.perform(get(LISTINGS + "/{id}", listingId)).andExpect(status().isNotFound());
         assertThat(searchIds()).doesNotContain(listingId);
         assertThat(queueIds(admin, "")).contains(listingId);
 
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", versionOf(listingId)))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", api.listingVersionOf(listingId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.seller.phone").isNotEmpty());
@@ -93,22 +88,22 @@ class ListingModerationIT {
 
     @Test
     void reject_pendingListing_ownerSeesReasonAndAnyEditResubmits() throws Exception {
-        String admin = adminToken();
-        String owner = sellerToken();
-        Map<String, Object> body = listingBody(owner);
+        String admin = api.adminToken();
+        String owner = api.verifiedToken();
+        Map<String, Object> body = api.listingBody(owner);
         long listingId = createListing(owner, body);
 
-        perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
-                Map.of("version", versionOf(listingId), "reason", "  Görseller araca ait değil  "))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
+                Map.of("version", api.listingVersionOf(listingId), "reason", "  Görseller araca ait değil  "))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"))
                 .andExpect(jsonPath("$.rejectionReason").value("Görseller araca ait değil"));
 
-        perform(get(LISTINGS + "/{id}", listingId), owner, null)
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null)
                 .andExpect(jsonPath("$.rejectionReason").value("Görseller araca ait değil"));
-        perform(get(LISTINGS + "/{id}", listingId), sellerToken(), null).andExpect(status().isNotFound());
+        api.perform(get(LISTINGS + "/{id}", listingId), api.verifiedToken(), null).andExpect(status().isNotFound());
         assertThat(queueIds(admin, "?status=REJECTED")).contains(listingId);
-        perform(patch(LISTINGS + "/{id}/status", listingId), owner, Map.of("status", "ACTIVE"))
+        api.perform(patch(LISTINGS + "/{id}/status", listingId), owner, Map.of("status", "ACTIVE"))
                 .andExpect(status().isUnprocessableContent());
 
         // Even a detail outside the reviewed content sends a rejected listing back to the queue
@@ -120,8 +115,8 @@ class ListingModerationIT {
 
     @Test
     void update_liveListing_onlyReviewedContentGoesBackToApproval() throws Exception {
-        String owner = sellerToken();
-        Map<String, Object> body = listingBody(owner, 2);
+        String owner = api.verifiedToken();
+        Map<String, Object> body = api.listingBody(owner, 2);
         long listingId = createListing(owner, body);
         TestListings.approve(jdbcTemplate, listingId);
 
@@ -145,60 +140,60 @@ class ListingModerationIT {
 
     @Test
     void approveAndReject_staleVersionWrongStatusOrInvalidBody_areRejected() throws Exception {
-        String admin = adminToken();
-        String owner = sellerToken();
-        long listingId = createListing(owner, listingBody(owner));
-        long reviewedVersion = versionOf(listingId);
+        String admin = api.adminToken();
+        String owner = api.verifiedToken();
+        long listingId = createListing(owner, api.listingBody(owner));
+        long reviewedVersion = api.listingVersionOf(listingId);
         jdbcTemplate.update("update listings set version = version + 1 where id = ?", listingId);
 
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", reviewedVersion))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", reviewedVersion))
                 .andExpect(status().isConflict());
-        perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin, Map.of("version", versionOf(listingId)))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin, Map.of("version", api.listingVersionOf(listingId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.reason").isNotEmpty());
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of())
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of())
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.version").isNotEmpty());
 
         TestListings.approve(jdbcTemplate, listingId);
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", versionOf(listingId)))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), admin, Map.of("version", api.listingVersionOf(listingId)))
                 .andExpect(status().isUnprocessableContent());
         // Rejecting a live listing takes it down
-        perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
-                Map.of("version", versionOf(listingId), "reason", "Kurallara aykırı içerik"))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
+                Map.of("version", api.listingVersionOf(listingId), "reason", "Kurallara aykırı içerik"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
-        perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
-                Map.of("version", versionOf(listingId), "reason", "Tekrar"))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/reject", listingId), admin,
+                Map.of("version", api.listingVersionOf(listingId), "reason", "Tekrar"))
                 .andExpect(status().isUnprocessableContent());
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", 99_999_999), admin, Map.of("version", 0))
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", 99_999_999), admin, Map.of("version", 0))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void adminListingEndpoints_forNonAdmins_return401Or403AndBadStatusIs400() throws Exception {
-        String owner = sellerToken();
-        long listingId = createListing(owner, listingBody(owner));
+        String owner = api.verifiedToken();
+        long listingId = createListing(owner, api.listingBody(owner));
 
         mockMvc.perform(get(ADMIN_LISTINGS)).andExpect(status().isUnauthorized());
-        perform(get(ADMIN_LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isForbidden());
-        perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), owner, Map.of("version", 0))
+        api.perform(get(ADMIN_LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isForbidden());
+        api.perform(post(ADMIN_LISTINGS + "/{id}/approve", listingId), owner, Map.of("version", 0))
                 .andExpect(status().isForbidden());
-        perform(get(ADMIN_LISTINGS + "?status=FOO"), adminToken(), null)
+        api.perform(get(ADMIN_LISTINGS + "?status=FOO"), api.adminToken(), null)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.status").value("Geçersiz değer"));
-        perform(get(ADMIN_LISTINGS + "/{id}", listingId), adminToken(), null)
+        api.perform(get(ADMIN_LISTINGS + "/{id}", listingId), api.adminToken(), null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"));
     }
 
     private ResultActions update(String token, long listingId, Map<String, Object> body) throws Exception {
-        body.put("version", versionOf(listingId));
-        return perform(put(LISTINGS + "/{id}", listingId), token, body).andExpect(status().isOk());
+        body.put("version", api.listingVersionOf(listingId));
+        return api.perform(put(LISTINGS + "/{id}", listingId), token, body).andExpect(status().isOk());
     }
 
     private ResultActions changeStatus(String token, long listingId, String targetStatus) throws Exception {
-        return perform(patch(LISTINGS + "/{id}/status", listingId), token, Map.of("status", targetStatus));
+        return api.perform(patch(LISTINGS + "/{id}/status", listingId), token, Map.of("status", targetStatus));
     }
 
     private List<Long> searchIds() throws Exception {
@@ -206,39 +201,13 @@ class ListingModerationIT {
     }
 
     private List<Long> queueIds(String admin, String query) throws Exception {
-        return idsOf(perform(get(ADMIN_LISTINGS + query + (query.isEmpty() ? "?" : "&") + "size=50"), admin, null)
+        return idsOf(api.perform(get(ADMIN_LISTINGS + query + (query.isEmpty() ? "?" : "&") + "size=50"), admin, null)
                 .andExpect(status().isOk()));
     }
 
     private static List<Long> idsOf(ResultActions result) throws Exception {
         String response = result.andReturn().getResponse().getContentAsString();
         return JsonPath.<List<Number>>read(response, "$.content[*].id").stream().map(Number::longValue).toList();
-    }
-
-    private Map<String, Object> listingBody(String token) throws Exception {
-        return listingBody(token, 1);
-    }
-
-    private Map<String, Object> listingBody(String token, int imageCount) throws Exception {
-        Map<String, Object> vehicle = new HashMap<>();
-        vehicle.put("seriesId", jdbcTemplate.queryForObject("select min(id) from vehicle_series", Long.class));
-        vehicle.put("modelYear", 2020);
-        vehicle.put("kilometer", 45_000);
-        vehicle.put("fuelType", "GASOLINE");
-        vehicle.put("gearType", "AUTOMATIC");
-        vehicle.put("vehicleCondition", "USED");
-        vehicle.put("fromWho", "OWNER");
-        vehicle.put("hasDamageRecord", false);
-        vehicle.put("exchangeable", true);
-        Map<String, Object> body = new HashMap<>();
-        body.put("title", "Temiz aile aracı");
-        body.put("description", "Bakımları yetkili serviste yapıldı.");
-        body.put("price", 750_000);
-        body.put("currency", "TRY");
-        body.put("districtId", jdbcTemplate.queryForObject("select min(id) from districts", Long.class));
-        body.put("vehicle", vehicle);
-        body.put("imageIds", TestImages.uploaded(jdbcTemplate, userIdOf(token), imageCount));
-        return body;
     }
 
     @SuppressWarnings("unchecked")
@@ -258,58 +227,10 @@ class ListingModerationIT {
     }
 
     private long createListing(String token, Map<String, Object> body) throws Exception {
-        String response = perform(post(LISTINGS), token, body)
+        String response = api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.<Number>read(response, "$.id").longValue();
-    }
-
-    private long versionOf(long listingId) {
-        return jdbcTemplate.queryForObject("select version from listings where id = ?", Long.class, listingId);
-    }
-
-    // Authorities are reloaded from the database on every request, so the token works as admin right away
-    private String adminToken() throws Exception {
-        String email = uniqueEmail();
-        String token = register(email);
-        jdbcTemplate.update("update users set role = 'ADMIN' where email = ?", email);
-        return token;
-    }
-
-    // Listing creation needs a verified e-mail, so it is set directly in the database
-    private String sellerToken() throws Exception {
-        String email = uniqueEmail();
-        String token = register(email);
-        jdbcTemplate.update("update users set email_verified = true where email = ?", email);
-        return token;
-    }
-
-    private String register(String email) throws Exception {
-        Map<String, String> body = Map.of("email", email, "password", PASSWORD,
-                "firstName", "Ayşe", "lastName", "Yılmaz", "phone", "+905321234567");
-        String response = perform(post("/api/auth/register"), null, body)
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(response, "$.accessToken");
-    }
-
-    private long userIdOf(String token) throws Exception {
-        String response = perform(get("/api/users/me"), token, null).andReturn().getResponse().getContentAsString();
-        return JsonPath.<Number>read(response, "$.id").longValue();
-    }
-
-    private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
-        if (token != null) {
-            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        if (body != null) {
-            request.contentType(MediaType.APPLICATION_JSON).content(jsonMapper.writeValueAsString(body));
-        }
-        return mockMvc.perform(request);
-    }
-
-    private static String uniqueEmail() {
-        return "user-" + UUID.randomUUID() + "@satmis.com";
     }
 }

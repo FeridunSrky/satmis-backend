@@ -1,7 +1,7 @@
 package com.satmis.listing;
 
 import com.jayway.jsonpath.JsonPath;
-import com.satmis.TestImages;
+import com.satmis.TestApi;
 import com.satmis.TestJwtSecret;
 import com.satmis.TestListings;
 import jakarta.persistence.EntityManagerFactory;
@@ -12,22 +12,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,6 +36,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Import(TestApi.class)
 @SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -49,7 +46,6 @@ class SoldVehicleIT {
     private static final String LISTINGS = "/api/listings";
     private static final String SOLD_VEHICLES = "/api/sold-vehicles";
     private static final String ADMIN_SOLD_VEHICLES = "/api/admin/sold-vehicles";
-    private static final String PASSWORD = "Sifre1234";
     private static final int ASKING_PRICE = 750_000;
     private static final int MAX_QUERIES_PER_PAGE = 4;
 
@@ -66,7 +62,7 @@ class SoldVehicleIT {
     private MockMvc mockMvc;
 
     @Autowired
-    private JsonMapper jsonMapper;
+    private TestApi api;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -76,7 +72,7 @@ class SoldVehicleIT {
 
     @Test
     void search_soldListing_isListedWithBothPricesAndNoSeller() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long soldId = soldListing(owner, keyword, 700_000);
         liveListing(owner, keyword, ASKING_PRICE, "TRY");
@@ -94,32 +90,32 @@ class SoldVehicleIT {
 
     @Test
     void search_hiddenSaleOrBlockedOwner_isNotListed() throws Exception {
-        String owner = sellerToken();
-        String blockedOwner = sellerToken();
+        String owner = api.verifiedToken();
+        String blockedOwner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long visible = soldListing(owner, keyword, ASKING_PRICE);
         long hidden = soldListing(owner, keyword, ASKING_PRICE);
         soldListing(blockedOwner, keyword, ASKING_PRICE);
         jdbcTemplate.update("update listings set sale_hidden = true where id = ?", hidden);
-        jdbcTemplate.update("update users set enabled = false where id = ?", userIdOf(blockedOwner));
+        jdbcTemplate.update("update users set enabled = false where id = ?", api.userIdOf(blockedOwner));
 
         assertThat(soldIds("q=" + keyword)).containsExactly(visible);
     }
 
     @Test
     void search_relistedListing_leavesSoldList() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long listingId = soldListing(owner, keyword, ASKING_PRICE);
 
-        perform(delete(LISTINGS + "/{id}/sale", listingId), owner, null).andExpect(status().isOk());
+        api.perform(delete(LISTINGS + "/{id}/sale", listingId), owner, null).andExpect(status().isOk());
 
         assertThat(soldIds("q=" + keyword)).isEmpty();
     }
 
     @Test
     void search_priceFilters_useSalePrice() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long listingId = soldListing(owner, keyword, 700_000);
 
@@ -129,7 +125,7 @@ class SoldVehicleIT {
 
     @Test
     void search_sortedBySalePrice_ordersBySalePriceNotAskingPrice() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long cheaperSale = soldListing(owner, keyword, 600_000);
         long dearerSale = soldListing(owner, keyword, 825_000);
@@ -147,7 +143,7 @@ class SoldVehicleIT {
 
     @Test
     void search_fullPage_usesFixedNumberOfQueries() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         for (int index = 0; index < 5; index++) {
             soldListing(owner, keyword, ASKING_PRICE);
@@ -165,7 +161,7 @@ class SoldVehicleIT {
 
     @Test
     void summarize_matchingSales_returnsStatsPerCurrency() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         soldListing(owner, keyword, 600_000);
         soldListing(owner, keyword, 700_000);
@@ -196,10 +192,10 @@ class SoldVehicleIT {
 
     @Test
     void getDetail_soldListing_returnsSaleWithoutSeller() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         long listingId = liveListing(owner, uniqueKeyword(), ASKING_PRICE, "TRY");
-        perform(post(LISTINGS + "/{id}/sale", listingId), owner,
-                Map.of("salePrice", 720_000, "note", "Pazarlıkla anlaştık", "version", versionOf(listingId)))
+        api.perform(post(LISTINGS + "/{id}/sale", listingId), owner,
+                Map.of("salePrice", 720_000, "note", "Pazarlıkla anlaştık", "version", api.listingVersionOf(listingId)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(get(SOLD_VEHICLES + "/{id}", listingId))
@@ -215,7 +211,7 @@ class SoldVehicleIT {
 
     @Test
     void getDetail_notPubliclySold_returns404() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         long live = liveListing(owner, uniqueKeyword(), ASKING_PRICE, "TRY");
         long hidden = soldListing(owner, uniqueKeyword(), ASKING_PRICE);
         jdbcTemplate.update("update listings set sale_hidden = true where id = ?", hidden);
@@ -227,50 +223,43 @@ class SoldVehicleIT {
 
     @Test
     void hide_byAdmin_removesSaleFromPageButKeepsListingSold() throws Exception {
-        String admin = adminToken();
-        String owner = sellerToken();
+        String admin = api.adminToken();
+        String owner = api.verifiedToken();
         String keyword = uniqueKeyword();
         long listingId = soldListing(owner, keyword, ASKING_PRICE);
 
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), admin, null)
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), admin, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SOLD"))
                 .andExpect(jsonPath("$.sale.hidden").value(true));
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), admin, null).andExpect(status().isOk());
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), admin, null).andExpect(status().isOk());
 
         assertThat(soldIds("q=" + keyword)).isEmpty();
         mockMvc.perform(get(SOLD_VEHICLES + "/summary").param("q", keyword))
                 .andExpect(jsonPath("$.currencies", hasSize(0)));
-        perform(get(LISTINGS + "/{id}", listingId), owner, null)
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null)
                 .andExpect(jsonPath("$.sale.hidden").value(true));
     }
 
     @Test
     void hide_listingNotSoldOrMissing_returns422Or404() throws Exception {
-        String admin = adminToken();
-        long live = liveListing(sellerToken(), uniqueKeyword(), ASKING_PRICE, "TRY");
+        String admin = api.adminToken();
+        long live = liveListing(api.verifiedToken(), uniqueKeyword(), ASKING_PRICE, "TRY");
 
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", live), admin, null)
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", live), admin, null)
                 .andExpect(status().isUnprocessableContent());
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", Long.MAX_VALUE), admin, null)
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", Long.MAX_VALUE), admin, null)
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void hide_byNonAdmin_returns403() throws Exception {
-        String owner = sellerToken();
+        String owner = api.verifiedToken();
         long listingId = soldListing(owner, uniqueKeyword(), ASKING_PRICE);
 
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), owner, null).andExpect(status().isForbidden());
-        perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), null, null)
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), owner, null).andExpect(status().isForbidden());
+        api.perform(post(ADMIN_SOLD_VEHICLES + "/{id}/hide", listingId), null, null)
                 .andExpect(status().isUnauthorized());
-    }
-
-    // Authorities are reloaded from the database on every request, so the token works as admin right away
-    private String adminToken() throws Exception {
-        String token = sellerToken();
-        jdbcTemplate.update("update users set role = 'ADMIN' where id = ?", userIdOf(token));
-        return token;
     }
 
     private List<Long> soldIds(String query) throws Exception {
@@ -287,75 +276,22 @@ class SoldVehicleIT {
     }
 
     private ResultActions markSold(String token, long listingId, int salePrice) throws Exception {
-        return perform(post(LISTINGS + "/{id}/sale", listingId), token,
-                Map.of("salePrice", salePrice, "version", versionOf(listingId)));
+        return api.perform(post(LISTINGS + "/{id}/sale", listingId), token,
+                Map.of("salePrice", salePrice, "version", api.listingVersionOf(listingId)));
     }
 
     private long liveListing(String token, String keyword, int price, String currency) throws Exception {
-        String response = perform(post(LISTINGS), token, listingBody(token, keyword, price, currency))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        long listingId = JsonPath.<Number>read(response, "$.id").longValue();
-        TestListings.approve(jdbcTemplate, listingId);
-        return listingId;
-    }
-
-    private Map<String, Object> listingBody(String token, String keyword, int price, String currency)
-            throws Exception {
-        Map<String, Object> vehicle = new HashMap<>();
-        vehicle.put("seriesId", jdbcTemplate.queryForObject("select min(id) from vehicle_series", Long.class));
-        vehicle.put("modelYear", 2020);
-        vehicle.put("kilometer", 45_000);
-        vehicle.put("fuelType", "GASOLINE");
-        vehicle.put("gearType", "AUTOMATIC");
-        vehicle.put("vehicleCondition", "USED");
-        vehicle.put("fromWho", "OWNER");
-        vehicle.put("hasDamageRecord", false);
-        vehicle.put("exchangeable", true);
-        Map<String, Object> body = new HashMap<>();
+        Map<String, Object> body = api.listingBody(token);
         body.put("title", "Temiz aile aracı " + keyword);
-        body.put("description", "Bakımları yetkili serviste yapıldı.");
         body.put("price", price);
         body.put("currency", currency);
-        body.put("districtId", jdbcTemplate.queryForObject("select min(id) from districts", Long.class));
-        body.put("vehicle", vehicle);
-        body.put("imageIds", TestImages.uploaded(jdbcTemplate, userIdOf(token), 1));
-        return body;
+        long listingId = api.createListing(token, body);
+        TestListings.approve(jdbcTemplate, listingId);
+        return listingId;
     }
 
     // Letters only, so the same keyword never matches listings created by other tests
     private static String uniqueKeyword() {
         return "kw" + UUID.randomUUID().toString().replaceAll("[^a-f]", "");
-    }
-
-    private long versionOf(long listingId) {
-        return jdbcTemplate.queryForObject("select version from listings where id = ?", Long.class, listingId);
-    }
-
-    // Listing creation needs a verified e-mail, so it is set directly in the database
-    private String sellerToken() throws Exception {
-        String email = "seller-" + UUID.randomUUID() + "@satmis.com";
-        Map<String, String> body = Map.of("email", email, "password", PASSWORD,
-                "firstName", "Ayşe", "lastName", "Yılmaz", "phone", "+905321234567");
-        String response = perform(post("/api/auth/register"), null, body)
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        jdbcTemplate.update("update users set email_verified = true where email = ?", email);
-        return JsonPath.read(response, "$.accessToken");
-    }
-
-    private long userIdOf(String token) throws Exception {
-        String response = perform(get("/api/users/me"), token, null).andReturn().getResponse().getContentAsString();
-        return JsonPath.<Number>read(response, "$.id").longValue();
-    }
-
-    private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
-        if (token != null) {
-            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        if (body != null) {
-            request.contentType(MediaType.APPLICATION_JSON).content(jsonMapper.writeValueAsString(body));
-        }
-        return mockMvc.perform(request);
     }
 }

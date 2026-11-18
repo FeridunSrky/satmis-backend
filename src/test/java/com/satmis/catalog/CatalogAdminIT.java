@@ -1,13 +1,14 @@
 package com.satmis.catalog;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.TestApi;
 import com.satmis.TestJwtSecret;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -15,12 +16,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +32,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Import(TestApi.class)
 @SpringBootTest
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -54,14 +54,14 @@ class CatalogAdminIT {
     private MockMvc mockMvc;
 
     @Autowired
-    private JsonMapper jsonMapper;
+    private TestApi api;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Test
     void addBrandModelSeries_asAdmin_createsUsableCatalogEntries() throws Exception {
-        String admin = adminToken();
+        String admin = api.adminToken();
         String brandName = "Marka " + uniqueSuffix();
 
         long brandId = idOf(add(admin, "/brands", "  " + brandName.replace(" ", "   ") + " ")
@@ -79,7 +79,7 @@ class CatalogAdminIT {
 
     @Test
     void add_sameNameIgnoringTurkishCase_returns409() throws Exception {
-        String admin = adminToken();
+        String admin = api.adminToken();
         String suffix = uniqueSuffix();
         long brandId = idOf(add(admin, "/brands", "Şahin " + suffix).andExpect(status().isCreated()));
 
@@ -99,7 +99,7 @@ class CatalogAdminIT {
 
     @Test
     void add_invalidNameOrUnknownParent_isRejected() throws Exception {
-        String admin = adminToken();
+        String admin = api.adminToken();
 
         add(admin, "/brands", "   ")
                 .andExpect(status().isBadRequest())
@@ -116,12 +116,12 @@ class CatalogAdminIT {
         mockMvc.perform(post(ADMIN_CATALOG + "/brands").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Yetkisiz\"}"))
                 .andExpect(status().isUnauthorized());
-        add(register(uniqueEmail()), "/brands", "Yetkisiz").andExpect(status().isForbidden());
+        add(api.register(TestApi.uniqueEmail()), "/brands", "Yetkisiz").andExpect(status().isForbidden());
         assertThat(namesAt("/api/catalog/brands")).doesNotContain("Yetkisiz");
     }
 
     private ResultActions add(String token, String path, String name) throws Exception {
-        return perform(post(ADMIN_CATALOG + path), token, Map.of("name", name));
+        return api.perform(post(ADMIN_CATALOG + path), token, Map.of("name", name));
     }
 
     private List<String> namesAt(String path) throws Exception {
@@ -134,31 +134,6 @@ class CatalogAdminIT {
         return JsonPath.<Number>read(result.andReturn().getResponse().getContentAsString(), "$.id").longValue();
     }
 
-    // Authorities are reloaded from the database on every request, so the token works as admin right away
-    private String adminToken() throws Exception {
-        String email = uniqueEmail();
-        String token = register(email);
-        jdbcTemplate.update("update users set role = 'ADMIN' where email = ?", email);
-        return token;
-    }
-
-    private String register(String email) throws Exception {
-        Map<String, String> body = Map.of("email", email, "password", "Sifre1234",
-                "firstName", "Ayşe", "lastName", "Yılmaz", "phone", "+905321234567");
-        String response = perform(post("/api/auth/register"), null, body)
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(response, "$.accessToken");
-    }
-
-    private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
-        if (token != null) {
-            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        request.contentType(MediaType.APPLICATION_JSON).content(jsonMapper.writeValueAsString(body));
-        return mockMvc.perform(request);
-    }
-
     // Six letters without i (digits shifted to q-z): ROOT upper-casing i gives I, a different letter in Turkish
     private static String uniqueSuffix() {
         StringBuilder suffix = new StringBuilder();
@@ -166,9 +141,5 @@ class CatalogAdminIT {
             suffix.append(Character.isDigit(hex) ? (char) ('q' + (hex - '0')) : hex);
         }
         return suffix.toString();
-    }
-
-    private static String uniqueEmail() {
-        return "user-" + UUID.randomUUID() + "@satmis.com";
     }
 }
