@@ -1,6 +1,7 @@
 package com.satmis.listing;
 
 import com.jayway.jsonpath.JsonPath;
+import com.satmis.TestApi;
 import com.satmis.TestImages;
 import com.satmis.TestJwtSecret;
 import com.satmis.TestListings;
@@ -12,8 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -21,12 +22,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -50,6 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Import(TestApi.class)
 @SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -57,7 +57,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ListingIT {
 
     private static final String LISTINGS = "/api/listings";
-    private static final String PASSWORD = "Sifre1234";
     private static final String SELLER_PHONE = "+905321234567";
     private static final int MAX_QUERIES_PER_SEARCH_PAGE = 4;
 
@@ -74,7 +73,7 @@ class ListingIT {
     private MockMvc mockMvc;
 
     @Autowired
-    private JsonMapper jsonMapper;
+    private TestApi api;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -84,11 +83,11 @@ class ListingIT {
 
     @Test
     void create_validRequest_returns201WithDetail() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
         long coverImageId = imageIdsOf(body).getFirst();
 
-        perform(post(LISTINGS), token, body)
+        api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andExpect(header().string(HttpHeaders.LOCATION, containsString(LISTINGS + "/")))
                 .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
@@ -106,7 +105,7 @@ class ListingIT {
 
     @Test
     void getDetail_reloadedFromDatabase_returnsImagesInDisplayOrder() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         List<Long> imageIds = TestImages.uploaded(jdbcTemplate, userId(token), 2);
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
         body.put("imageIds", List.of(imageIds.get(1), imageIds.get(0)));
@@ -129,7 +128,7 @@ class ListingIT {
         body.put("imageIds", List.of(1, 1));
         vehicleOf(body).put("modelYear", 1900);
 
-        perform(post(LISTINGS), registerUser(), body)
+        api.perform(post(LISTINGS), api.verifiedToken(), body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.title").isNotEmpty())
                 .andExpect(jsonPath("$.errors.price").isNotEmpty())
@@ -139,22 +138,22 @@ class ListingIT {
 
     @Test
     void create_unknownSeries_returns422() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         Map<String, Object> body = withImages(listingBody(Long.MAX_VALUE, district("İstanbul", "Kadıköy")), token);
 
-        perform(post(LISTINGS), token, body)
+        api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").doesNotExist());
     }
 
     @Test
     void create_ownerWithUnverifiedEmail_returns422WithEmailNotVerifiedCode() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         long ownerId = userId(token);
         jdbcTemplate.update("update users set email_verified = false where id = ?", ownerId);
         Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
 
-        perform(post(LISTINGS), token, body)
+        api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("EMAIL_NOT_VERIFIED"))
                 .andExpect(jsonPath("$.message").value("İlan vermek için e-posta adresinizi doğrulayın"));
@@ -164,12 +163,12 @@ class ListingIT {
 
     @Test
     void create_ownerWithoutPhone_returns422WithPhoneRequiredCode() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         long ownerId = userId(token);
         jdbcTemplate.update("update users set phone = null where id = ?", ownerId);
         Map<String, Object> body = withImages(listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy")), token);
 
-        perform(post(LISTINGS), token, body)
+        api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("PHONE_REQUIRED"))
                 .andExpect(jsonPath("$.message").value("İlan vermek için profilinize telefon numarası ekleyin"));
@@ -179,14 +178,14 @@ class ListingIT {
 
     @Test
     void getDetail_sellerPhone_onlyVisibleToAuthenticatedViewers() throws Exception {
-        long listingId = createListing(registerUser(), series("Renault", "Clio", "1.0 TCe"),
+        long listingId = createListing(api.verifiedToken(), series("Renault", "Clio", "1.0 TCe"),
                 district("İstanbul", "Kadıköy"));
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.seller.phone").value(nullValue()))
                 .andExpect(jsonPath("$.seller.email").doesNotExist());
-        perform(get(LISTINGS + "/{id}", listingId), registerUser(), null)
+        api.perform(get(LISTINGS + "/{id}", listingId), api.verifiedToken(), null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.seller.phone").value(SELLER_PHONE))
                 .andExpect(jsonPath("$.seller.email").doesNotExist());
@@ -194,9 +193,9 @@ class ListingIT {
 
     @Test
     void search_summaries_neverContainSellerPhone() throws Exception {
-        createListing(registerUser(), series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
+        createListing(api.verifiedToken(), series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
 
-        String response = perform(get(LISTINGS), registerUser(), null)
+        String response = api.perform(get(LISTINGS), api.verifiedToken(), null)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(response).doesNotContain(SELLER_PHONE);
@@ -206,55 +205,55 @@ class ListingIT {
     void create_withoutToken_returns401() throws Exception {
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
 
-        perform(post(LISTINGS), null, body).andExpect(status().isUnauthorized());
+        api.perform(post(LISTINGS), null, body).andExpect(status().isUnauthorized());
     }
 
     @Test
     void getDetail_passiveListing_hiddenFromOthersButVisibleToOwner() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long listingId = createListing(owner, series("Fiat", "Egea", "1.3 Multijet"), district("Ankara", "Çankaya"));
         changeStatus(owner, listingId, "PASSIVE").andExpect(status().isOk());
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId)).andExpect(status().isNotFound());
-        perform(get(LISTINGS + "/{id}", listingId), registerUser(), null).andExpect(status().isNotFound());
-        perform(get(LISTINGS + "/{id}", listingId), owner, null)
+        api.perform(get(LISTINGS + "/{id}", listingId), api.verifiedToken(), null).andExpect(status().isNotFound());
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PASSIVE"));
     }
 
     @Test
     void getDetail_viewedByOthers_countsViewsExceptOwners() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long listingId = createListing(owner, series("Fiat", "Egea", "1.3 Multijet"), district("Ankara", "Çankaya"));
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId)).andExpect(status().isOk());
-        perform(get(LISTINGS + "/{id}", listingId), registerUser(), null).andExpect(status().isOk());
-        perform(get(LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isOk());
+        api.perform(get(LISTINGS + "/{id}", listingId), api.verifiedToken(), null).andExpect(status().isOk());
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isOk());
 
-        perform(get(LISTINGS + "/{id}", listingId), owner, null).andExpect(jsonPath("$.viewCount").value(2));
+        api.perform(get(LISTINGS + "/{id}", listingId), owner, null).andExpect(jsonPath("$.viewCount").value(2));
     }
 
     @Test
     void updateAndDelete_byNonOwner_return403() throws Exception {
         long seriesId = series("Toyota", "Corolla", "1.6");
         long districtId = district("İzmir", "Karşıyaka");
-        long listingId = createListing(registerUser(), seriesId, districtId);
-        String stranger = registerUser();
+        long listingId = createListing(api.verifiedToken(), seriesId, districtId);
+        String stranger = api.verifiedToken();
         Map<String, Object> body = withImages(listingBody(seriesId, districtId), stranger);
         body.put("version", 0);
 
-        perform(put(LISTINGS + "/{id}", listingId), stranger, body).andExpect(status().isForbidden());
-        perform(delete(LISTINGS + "/{id}", listingId), stranger, null).andExpect(status().isForbidden());
+        api.perform(put(LISTINGS + "/{id}", listingId), stranger, body).andExpect(status().isForbidden());
+        api.perform(delete(LISTINGS + "/{id}", listingId), stranger, null).andExpect(status().isForbidden());
         changeStatus(stranger, listingId, "SOLD").andExpect(status().isForbidden());
     }
 
     @Test
     void create_imageOfAnotherUser_returns422ImageNotAvailable() throws Exception {
-        String token = registerUser();
+        String token = api.verifiedToken();
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
-        body.put("imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(registerUser()))));
+        body.put("imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(api.verifiedToken()))));
 
-        perform(post(LISTINGS), token, body)
+        api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("IMAGE_NOT_AVAILABLE"));
         assertThat(jdbcTemplate.queryForObject("select count(*) from listings where user_id = ?", Integer.class,
@@ -263,7 +262,7 @@ class ListingIT {
 
     @Test
     void create_imageAlreadyInAnotherListingOrNotCompleted_returns422() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Renault", "Clio", "1.0 TCe");
         long districtId = district("İstanbul", "Kadıköy");
         long usedImageId = imageIdsOfListing(createListing(owner, seriesId, districtId)).getFirst();
@@ -273,7 +272,7 @@ class ListingIT {
         for (long imageId : List.of(usedImageId, pendingImageId)) {
             Map<String, Object> body = listingBody(seriesId, districtId);
             body.put("imageIds", List.of(imageId));
-            perform(post(LISTINGS), owner, body)
+            api.perform(post(LISTINGS), owner, body)
                     .andExpect(status().isUnprocessableContent())
                     .andExpect(jsonPath("$.code").value("IMAGE_NOT_AVAILABLE"));
         }
@@ -281,7 +280,7 @@ class ListingIT {
 
     @Test
     void update_reorderedImages_changesCoverAndKeepsBoth() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Toyota", "Corolla", "1.6");
         long districtId = district("İzmir", "Karşıyaka");
         long listingId = createListing(owner, seriesId, districtId);
@@ -290,7 +289,7 @@ class ListingIT {
         Map<String, Object> body = listingBody(seriesId, districtId);
         body.put("version", currentVersion(listingId));
         body.put("imageIds", List.of(imageIds.get(1), imageIds.get(0)));
-        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
+        api.perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId))
                 .andExpect(jsonPath("$.images", hasSize(2)))
@@ -302,7 +301,7 @@ class ListingIT {
 
     @Test
     void update_staleVersion_returns409AndEveryEditBumpsVersion() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Toyota", "Corolla", "1.6");
         long districtId = district("İzmir", "Karşıyaka");
         long listingId = createListing(owner, seriesId, districtId);
@@ -313,7 +312,7 @@ class ListingIT {
         body.put("version", 0);
         body.put("title", "Güncellenmiş başlık");
         body.put("imageIds", List.of(replacementImageId));
-        String firstUpdate = perform(put(LISTINGS + "/{id}", listingId), owner, body)
+        String firstUpdate = api.perform(put(LISTINGS + "/{id}", listingId), owner, body)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Güncellenmiş başlık"))
                 .andExpect(jsonPath("$.images", hasSize(1)))
@@ -324,12 +323,12 @@ class ListingIT {
         assertThat(originalImageIds).allSatisfy(imageId ->
                 assertThat(TestImages.statusOf(jdbcTemplate, imageId)).isEqualTo("DELETED"));
 
-        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isConflict());
+        api.perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isConflict());
 
         // Only images change here: the listing row itself is untouched but its version must still move
         body.put("version", versionAfterFirst);
         body.put("imageIds", List.of(TestImages.uploaded(jdbcTemplate, userId(owner)), replacementImageId));
-        String secondUpdate = perform(put(LISTINGS + "/{id}", listingId), owner, body)
+        String secondUpdate = api.perform(put(LISTINGS + "/{id}", listingId), owner, body)
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertThat(JsonPath.<Number>read(secondUpdate, "$.version").longValue()).isGreaterThan(versionAfterFirst);
@@ -337,19 +336,19 @@ class ListingIT {
 
     @Test
     void update_missingVersion_returns400() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Toyota", "Corolla", "1.6");
         long districtId = district("İzmir", "Karşıyaka");
         long listingId = createListing(owner, seriesId, districtId);
 
-        perform(put(LISTINGS + "/{id}", listingId), owner, listingBody(seriesId, districtId))
+        api.perform(put(LISTINGS + "/{id}", listingId), owner, listingBody(seriesId, districtId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.version").isNotEmpty());
     }
 
     @Test
     void changeStatus_ownerTransitions_followRules() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Hyundai", "i20", "1.4 MPI");
         long districtId = district("Bursa", "Nilüfer");
         long listingId = createListing(owner, seriesId, districtId);
@@ -365,19 +364,19 @@ class ListingIT {
 
         Map<String, Object> body = withImages(listingBody(seriesId, districtId), owner);
         body.put("version", currentVersion(listingId));
-        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isUnprocessableContent());
+        api.perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isUnprocessableContent());
     }
 
     @Test
     void delete_ownListing_removesDetailImagesAndFavorites() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long listingId = createListing(owner, series("Hyundai", "i20", "1.4 MPI"), district("Bursa", "Nilüfer"));
         List<Long> imageIds = imageIdsOfListing(listingId);
-        long favoritingUserId = userId(registerUser());
+        long favoritingUserId = userId(api.verifiedToken());
         jdbcTemplate.update("insert into favorites (user_id, listing_id, created_at) values (?, ?, now())",
                 favoritingUserId, listingId);
 
-        perform(delete(LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isNoContent());
+        api.perform(delete(LISTINGS + "/{id}", listingId), owner, null).andExpect(status().isNoContent());
 
         mockMvc.perform(get(LISTINGS + "/{id}", listingId)).andExpect(status().isNotFound());
         for (String table : List.of("vehicle_details", "listing_images", "favorites")) {
@@ -392,7 +391,7 @@ class ListingIT {
 
     @Test
     void search_withFilters_returnsOnlyMatchingActiveListings() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Volkswagen", "Golf", "1.5 eTSI");
         long districtId = district("Antalya", "Muratpaşa");
         long newCar = createListing(owner, withVehicle(listingBody(seriesId, districtId), 2022, 30_000));
@@ -411,7 +410,7 @@ class ListingIT {
 
     @Test
     void search_sortedByPrice_ordersAndPages() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Honda", "City", "1.5 i-VTEC");
         long districtId = district("Sinop", "Boyabat");
         long expensive = createListing(owner, withPrice(listingBody(seriesId, districtId), 300_000));
@@ -440,7 +439,7 @@ class ListingIT {
 
     @Test
     void search_fullPage_usesFixedNumberOfQueries() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Opel", "Astra", "1.4 Turbo");
         long districtId = district("Konya", "Selçuklu");
         for (int index = 0; index < 5; index++) {
@@ -459,7 +458,7 @@ class ListingIT {
 
     @Test
     void search_keyword_ignoresCaseAndTurkishCharacters() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         String marker = uniqueKeyword();
         Map<String, Object> body = listingBody(series("Toyota", "Corolla", "1.6"), district("İzmir", "Karşıyaka"));
         body.put("title", "IŞIKLI " + marker + " ÇAĞDAŞ donanım");
@@ -472,7 +471,7 @@ class ListingIT {
 
     @Test
     void search_keyword_matchesCatalogNamesByPrefixAndRequiresEveryTerm() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         String marker = uniqueKeyword();
         long seriesId = series("Volkswagen", "Golf", "1.5 eTSI");
         Map<String, Object> body = withVehicle(listingBody(seriesId, district("Konya", "Selçuklu")), 2022, 30_000);
@@ -488,7 +487,7 @@ class ListingIT {
 
     @Test
     void search_keywordWithQuerySyntax_isTreatedAsPlainText() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         String marker = uniqueKeyword();
         Map<String, Object> body = listingBody(series("Renault", "Clio", "1.0 TCe"), district("İstanbul", "Kadıköy"));
         body.put("title", "Temiz " + marker);
@@ -509,7 +508,7 @@ class ListingIT {
 
     @Test
     void update_changedTitle_isFoundByNewKeyword() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         String oldMarker = uniqueKeyword();
         String newMarker = uniqueKeyword();
         long seriesId = series("Toyota", "Corolla", "1.6");
@@ -521,7 +520,7 @@ class ListingIT {
         body.put("title", "İlan " + newMarker);
         body.put("version", currentVersion(listingId));
         body.put("imageIds", imageIdsOfListing(listingId));
-        perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
+        api.perform(put(LISTINGS + "/{id}", listingId), owner, body).andExpect(status().isOk());
         // A new title goes back to approval; publish it to check the search text followed the edit
         TestListings.approve(jdbcTemplate, listingId);
 
@@ -553,15 +552,15 @@ class ListingIT {
 
     @Test
     void getMyListings_includesEveryStatus() throws Exception {
-        String owner = registerUser();
+        String owner = api.verifiedToken();
         long seriesId = series("Peugeot", "208", "1.2 PureTech");
         long districtId = district("Eskişehir", "Tepebaşı");
         long active = createListing(owner, seriesId, districtId);
         long sold = createListing(owner, seriesId, districtId);
         markSold(owner, sold).andExpect(status().isOk());
-        createListing(registerUser(), seriesId, districtId);
+        createListing(api.verifiedToken(), seriesId, districtId);
 
-        String body = perform(get("/api/users/me/listings"), owner, null)
+        String body = api.perform(get("/api/users/me/listings"), owner, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2))
                 .andReturn().getResponse().getContentAsString();
@@ -638,7 +637,7 @@ class ListingIT {
         if (!body.containsKey("imageIds")) {
             withImages(body, token);
         }
-        String response = perform(post(LISTINGS), token, body)
+        String response = api.perform(post(LISTINGS), token, body)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         long listingId = JsonPath.<Number>read(response, "$.id").longValue();
@@ -647,12 +646,12 @@ class ListingIT {
     }
 
     private ResultActions changeStatus(String token, long listingId, String targetStatus) throws Exception {
-        return perform(patch(LISTINGS + "/{id}/status", listingId), token, Map.of("status", targetStatus));
+        return api.perform(patch(LISTINGS + "/{id}/status", listingId), token, Map.of("status", targetStatus));
     }
 
     // At the asking price of listingBody, which is always within the allowed range
     private ResultActions markSold(String token, long listingId) throws Exception {
-        return perform(post(LISTINGS + "/{id}/sale", listingId), token,
+        return api.perform(post(LISTINGS + "/{id}/sale", listingId), token,
                 Map.of("salePrice", 750_000, "version", currentVersion(listingId)));
     }
 
@@ -675,30 +674,8 @@ class ListingIT {
         return "kw" + UUID.randomUUID().toString().replaceAll("[^a-f]", "");
     }
 
-    private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
-        if (token != null) {
-            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        if (body != null) {
-            request.contentType(MediaType.APPLICATION_JSON).content(jsonMapper.writeValueAsString(body));
-        }
-        return mockMvc.perform(request);
-    }
-
-    // Listing creation needs a verified e-mail, so the helper verifies it directly in the database
-    private String registerUser() throws Exception {
-        String email = "seller-" + UUID.randomUUID() + "@satmis.com";
-        Map<String, String> body = Map.of("email", email,
-                "password", PASSWORD, "firstName", "Ayşe", "lastName", "Yılmaz", "phone", SELLER_PHONE);
-        String response = perform(post("/api/auth/register"), null, body)
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        jdbcTemplate.update("update users set email_verified = true where email = ?", email);
-        return JsonPath.read(response, "$.accessToken");
-    }
-
     private long userId(String token) throws Exception {
-        String response = perform(get("/api/users/me"), token, null).andReturn().getResponse().getContentAsString();
+        String response = api.perform(get("/api/users/me"), token, null).andReturn().getResponse().getContentAsString();
         return JsonPath.<Number>read(response, "$.id").longValue();
     }
 

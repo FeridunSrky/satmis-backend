@@ -2,6 +2,7 @@ package com.satmis.listing;
 
 import com.jayway.jsonpath.JsonPath;
 import com.satmis.SeaweedFsContainer;
+import com.satmis.TestApi;
 import com.satmis.TestJwtSecret;
 import com.satmis.storage.ObjectStorage;
 import org.junit.jupiter.api.Test;
@@ -9,20 +10,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -32,7 +29,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.startsWith;
@@ -42,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // The file goes to SeaweedFS over real HTTP with the presigned URL, exactly as the browser will send it.
+@Import(TestApi.class)
 @SpringBootTest(properties = "app.listing-images.max-unattached-per-user=3")
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -68,10 +65,7 @@ class ListingImageUploadIT {
     }
 
     @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private JsonMapper jsonMapper;
+    private TestApi api;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -84,7 +78,7 @@ class ListingImageUploadIT {
 
     @Test
     void uploadFlow_validJpeg_isStoredCheckedAndPubliclyReadable() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         byte[] file = jpeg(2048);
 
         String response = requestUpload(token, JPEG, file.length)
@@ -95,7 +89,7 @@ class ListingImageUploadIT {
                 .andReturn().getResponse().getContentAsString();
         assertThat(putFile(response, file)).isEqualTo(200);
 
-        String completed = perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
+        String completed = api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(idOf(response)))
                 .andExpect(jsonPath("$.url", startsWith(storage.endpoint() + "/" + SeaweedFsContainer.BUCKET + "/listings/")))
@@ -109,58 +103,58 @@ class ListingImageUploadIT {
 
     @Test
     void completeUpload_calledTwice_returnsTheSameImage() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long imageId = uploadAndComplete(token);
 
-        perform(post(IMAGES + "/{id}/complete", imageId), token, null)
+        api.perform(post(IMAGES + "/{id}/complete", imageId), token, null)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(imageId));
     }
 
     @Test
     void completeUpload_beforeTheFileArrives_returns422AndCanBeRetried() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         byte[] file = jpeg(1024);
         String response = requestUpload(token, JPEG, file.length).andReturn().getResponse().getContentAsString();
 
-        perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
+        api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("IMAGE_NOT_UPLOADED"));
         assertThat(statusOf(idOf(response))).isEqualTo("PENDING");
 
         putFile(response, file);
-        perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isOk());
+        api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isOk());
     }
 
     @Test
     void completeUpload_pngBytesDeclaredAsJpeg_returns422AndRemovesTheFile() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         byte[] png = png(1024);
         String response = requestUpload(token, JPEG, png.length).andReturn().getResponse().getContentAsString();
         assertThat(putFile(response, png)).isEqualTo(200);
         String objectKey = objectKeyOf(idOf(response));
 
-        perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
+        api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("IMAGE_INVALID"));
 
         awaitRemoved(idOf(response), objectKey);
-        perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isNotFound());
+        api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isNotFound());
     }
 
     @Test
     void completeUpload_anotherUsersImage_returns404() throws Exception {
-        long imageId = uploadAndComplete(registerVerifiedUser());
+        long imageId = uploadAndComplete(api.verifiedToken());
 
-        perform(post(IMAGES + "/{id}/complete", imageId), registerVerifiedUser(), null)
+        api.perform(post(IMAGES + "/{id}/complete", imageId), api.verifiedToken(), null)
                 .andExpect(status().isNotFound());
-        perform(delete(IMAGES + "/{id}", imageId), registerVerifiedUser(), null)
+        api.perform(delete(IMAGES + "/{id}", imageId), api.verifiedToken(), null)
                 .andExpect(status().isNotFound());
     }
 
     @Test
     void requestUpload_unverifiedEmail_returns422WithEmailNotVerifiedCode() throws Exception {
-        String token = registerUser();
+        String token = api.userToken();
 
         requestUpload(token, JPEG, 1000)
                 .andExpect(status().isUnprocessableContent())
@@ -169,23 +163,23 @@ class ListingImageUploadIT {
 
     @Test
     void requestUpload_invalidRequests_return400() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
 
         requestUpload(token, "image/svg+xml", 1000).andExpect(status().isBadRequest());
         requestUpload(token, JPEG, 11L * 1024 * 1024).andExpect(status().isBadRequest());
-        perform(post(IMAGES), token, Map.of("contentType", JPEG))
+        api.perform(post(IMAGES), token, Map.of("contentType", JPEG))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.sizeBytes").isNotEmpty());
     }
 
     @Test
     void requestUpload_anonymous_returns401() throws Exception {
-        perform(post(IMAGES), null, Map.of("contentType", JPEG, "sizeBytes", 1000)).andExpect(status().isUnauthorized());
+        api.perform(post(IMAGES), null, Map.of("contentType", JPEG, "sizeBytes", 1000)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void requestUpload_unattachedLimitReached_returns422UntilAnImageIsDeleted() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long firstImageId = idOf(requestUpload(token, JPEG, 1000).andReturn().getResponse().getContentAsString());
         requestUpload(token, JPEG, 1000).andExpect(status().isCreated());
         requestUpload(token, JPEG, 1000).andExpect(status().isCreated());
@@ -194,25 +188,25 @@ class ListingImageUploadIT {
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("IMAGE_LIMIT_REACHED"));
 
-        perform(delete(IMAGES + "/{id}", firstImageId), token, null).andExpect(status().isNoContent());
+        api.perform(delete(IMAGES + "/{id}", firstImageId), token, null).andExpect(status().isNoContent());
         requestUpload(token, JPEG, 1000).andExpect(status().isCreated());
     }
 
     @Test
     void deleteUpload_uploadedImage_removesFileAndRowAfterCommit() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long imageId = uploadAndComplete(token);
         String objectKey = objectKeyOf(imageId);
 
-        perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNoContent());
+        api.perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNoContent());
 
         awaitRemoved(imageId, objectKey);
-        perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNotFound());
+        api.perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isNotFound());
     }
 
     @Test
     void cleanUp_uploadAbandonedForADay_isRemovedAndFreshOneKept() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long abandonedId = uploadAndComplete(token);
         long freshId = uploadAndComplete(token);
         String abandonedKey = objectKeyOf(abandonedId);
@@ -228,9 +222,9 @@ class ListingImageUploadIT {
 
     @Test
     void cleanUp_imageInAListing_isKeptHoweverOld() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long imageId = uploadAndComplete(token);
-        perform(post("/api/listings"), token, listingBody(imageId)).andExpect(status().isCreated());
+        api.perform(post("/api/listings"), token, listingBody(imageId)).andExpect(status().isCreated());
         jdbcTemplate.update("update listing_images set created_at = now() - interval '30 days' where id = ?", imageId);
 
         listingImageCleanupService.cleanUp();
@@ -241,22 +235,22 @@ class ListingImageUploadIT {
 
     @Test
     void uploadedImage_usedInAListing_isShownWithItsPublicUrlAndReleasedOnDelete() throws Exception {
-        String token = registerVerifiedUser();
+        String token = api.verifiedToken();
         long imageId = uploadAndComplete(token);
-        String imageUrl = JsonPath.read(perform(post(IMAGES + "/{id}/complete", imageId), token, null)
+        String imageUrl = JsonPath.read(api.perform(post(IMAGES + "/{id}/complete", imageId), token, null)
                 .andReturn().getResponse().getContentAsString(), "$.url");
 
-        String listing = perform(post("/api/listings"), token, listingBody(imageId))
+        String listing = api.perform(post("/api/listings"), token, listingBody(imageId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.images[0].id").value(imageId))
                 .andExpect(jsonPath("$.images[0].url").value(imageUrl))
                 .andExpect(jsonPath("$.images[0].cover").value(true))
                 .andReturn().getResponse().getContentAsString();
         assertThat(statusOf(imageId)).isEqualTo("ATTACHED");
-        perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isConflict());
+        api.perform(delete(IMAGES + "/{id}", imageId), token, null).andExpect(status().isConflict());
 
         String objectKey = objectKeyOf(imageId);
-        perform(delete("/api/listings/{id}", idOf(listing)), token, null).andExpect(status().isNoContent());
+        api.perform(delete("/api/listings/{id}", idOf(listing)), token, null).andExpect(status().isNoContent());
         awaitRemoved(imageId, objectKey);
     }
 
@@ -274,12 +268,12 @@ class ListingImageUploadIT {
         byte[] file = jpeg(512);
         String response = requestUpload(token, JPEG, file.length).andReturn().getResponse().getContentAsString();
         putFile(response, file);
-        perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isOk());
+        api.perform(post(IMAGES + "/{id}/complete", idOf(response)), token, null).andExpect(status().isOk());
         return idOf(response);
     }
 
     private ResultActions requestUpload(String token, String contentType, long sizeBytes) throws Exception {
-        return perform(post(IMAGES), token, Map.of("contentType", contentType, "sizeBytes", sizeBytes));
+        return api.perform(post(IMAGES), token, Map.of("contentType", contentType, "sizeBytes", sizeBytes));
     }
 
     // Sends the file the way the browser will: PUT to the presigned URL with exactly the returned headers
@@ -288,38 +282,6 @@ class ListingImageUploadIT {
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(file));
         JsonPath.<Map<String, String>>read(uploadResponse, "$.uploadHeaders").forEach(request::header);
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.discarding()).statusCode();
-    }
-
-    private ResultActions perform(MockHttpServletRequestBuilder request, String token, Object body) throws Exception {
-        if (token != null) {
-            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
-        if (body != null) {
-            request.contentType(MediaType.APPLICATION_JSON).content(jsonMapper.writeValueAsString(body));
-        }
-        return mockMvc.perform(request);
-    }
-
-    // Listing (and so uploading) needs a verified e-mail, so the helper verifies it directly in the database
-    private String registerVerifiedUser() throws Exception {
-        return register(true);
-    }
-
-    private String registerUser() throws Exception {
-        return register(false);
-    }
-
-    private String register(boolean emailVerified) throws Exception {
-        String email = "uploader-" + UUID.randomUUID() + "@satmis.com";
-        Map<String, String> body = Map.of("email", email, "password", "Sifre1234",
-                "firstName", "Ayşe", "lastName", "Yılmaz", "phone", "+905321234567");
-        String response = perform(post("/api/auth/register"), null, body)
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        if (emailVerified) {
-            jdbcTemplate.update("update users set email_verified = true where email = ?", email);
-        }
-        return JsonPath.read(response, "$.accessToken");
     }
 
     // Files of deleted images are removed asynchronously after the commit, then their rows
